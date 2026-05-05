@@ -1,0 +1,18 @@
+# Build and Binary
+build/
+bin/
+*.exe
+*.o
+*.obj
+*.pdb
+*.ilk
+
+# IDE and System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Configs (optional, but usually we keep default.json)
+last_duration.txt
+generation_configs/default.json

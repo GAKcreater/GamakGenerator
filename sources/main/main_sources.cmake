@@ -1,0 +1,10 @@
+set(MAIN_SOURCES
+    main.cpp
+    room.cpp
+    room.hpp
+    GeneratedObject.hpp
+    delaunay.cpp
+    delaunay.hpp
+    graph.cpp
+    graph.hpp
+)
