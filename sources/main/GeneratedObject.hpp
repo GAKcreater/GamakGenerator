@@ -7,7 +7,7 @@
 /**
  * @brief Базовый интерфейс для всех генерируемых объектов (комнаты, залы, зоны).
  */
-class GeneratedObject {
+class GeneratedObject : public sf::Drawable {
 public:
     virtual ~GeneratedObject() = default;
 
@@ -22,8 +22,9 @@ public:
     // Метаданные
     virtual int getPassId() const = 0;
     virtual float getSpacingJitter() const = 0;
-    virtual void setTag(const std::string& tag) = 0;
-    virtual std::string getTag() const = 0;
+
+    // Отрисовка (из sf::Drawable)
+    virtual void draw(sf::RenderTarget& target, sf::RenderStates states) const override = 0;
 };
 
 #endif // GENERATED_OBJECT_HPP

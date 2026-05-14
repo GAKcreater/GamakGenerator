@@ -26,7 +26,7 @@ namespace fs = std::filesystem;
 
 struct ObjectPassConfig {
     std::string name = "default";
-    std::string type = "room";       // Тип объекта: "room", "circle" (в будущем) и т.д.
+    std::string type = "room";       
     int minRoomSize = 20;
     int maxRoomSize = 60;
     int roomCount = 80;
@@ -178,12 +178,6 @@ public:
         float angle = pass.maxRotation > 0.0f ? (float)(rand() % 2000 - 1000) / 1000.0f * pass.maxRotation : 0.0f;
         float jitter = pass.spacingVariance > 0.0f ? (float)(rand() % 2000 - 1000) / 1000.0f * pass.spacingVariance : 0.0f;
 
-        if (pass.type == "room" || pass.type == "default") {
-            return std::make_shared<Room>(pos, size, angle, passId, jitter);
-        }
-        // Здесь можно будет добавить новые типы, например:
-        // if (pass.type == "circle") return std::make_shared<CircleObject>(pos, size.x/2.0f, passId, jitter);
-
         return std::make_shared<Room>(pos, size, angle, passId, jitter);
     }
 };
@@ -272,7 +266,6 @@ std::mt19937 globalGen;
 std::optional<sf::Vector2f> getPointInCircle(float radius, float dispersion, float exp, const sf::Image* mask = nullptr) {
     int maxAttempts = 100;
     std::uniform_real_distribution<float> uDist(0.0f, 1.0f);
-    
     for (int attempt = 0; attempt < maxAttempts; ++attempt) {
         sf::Vector2f p;
         if (exp <= 0.0f) {
@@ -285,14 +278,10 @@ std::optional<sf::Vector2f> getPointInCircle(float radius, float dispersion, flo
             float r = radius * std::pow(uDist(globalGen), exp);
             p = sf::Vector2f(std::cos(angle) * r, std::sin(angle) * r);
         }
-
         if (!mask) return p;
-
-        // Проверка маски (предполагаем, что центр маски совпадает с центром спавна)
         sf::Vector2u size = mask->getSize();
         int maskX = (int)p.x + (int)size.x / 2;
         int maskY = (int)p.y + (int)size.y / 2;
-
         if (maskX >= 0 && (unsigned int)maskX < size.x && maskY >= 0 && (unsigned int)maskY < size.y) {
             float brightness = mask->getPixel({(unsigned int)maskX, (unsigned int)maskY}).r / 255.0f;
             if (uDist(globalGen) <= brightness) return p;
@@ -301,21 +290,9 @@ std::optional<sf::Vector2f> getPointInCircle(float radius, float dispersion, flo
     return std::nullopt; 
 }
 
-fs::path findProjectRoot(fs::path currentPath) {
-    for (int i = 0; i < 5; ++i) {
-        if (fs::exists(currentPath / "sources") || fs::exists(currentPath / "CMakeLists.txt")) {
-            return currentPath;
-        }
-        if (!currentPath.has_parent_path()) break;
-        currentPath = currentPath.parent_path();
-    }
-    return fs::current_path();
-}
-
 int main() {
     GenerationConfig config;
-    fs::path root = findProjectRoot(fs::current_path());
-    std::string configPath = (root / "generation_configs" / "default.json").string();
+    std::string configPath = "generation_configs/default.json";
     config.loadFromFile(configPath);
     unsigned int windowSize = 900;
     sf::Vector2f spawnCenter((float)windowSize/2, (float)windowSize/2);
@@ -332,21 +309,16 @@ int main() {
 
     auto generateAsync = [&]() {
         unsigned int currentSeed = (config.seed == 0) ? (unsigned int)time(nullptr) : (unsigned int)config.seed;
-        srand(currentSeed);
-        globalGen.seed(currentSeed);
-        
+        srand(currentSeed); globalGen.seed(currentSeed);
         sf::Clock internalTimer;
         std::vector<std::shared_ptr<GeneratedObject>> localObjects;
         std::map<std::string, int> passNameToId;
         for (size_t i = 0; i < config.passes.size(); ++i) passNameToId[config.passes[i].name] = (int)i;
 
-        // Предварительная загрузка масок
         std::map<int, sf::Image> masks;
         for (size_t i = 0; i < config.passes.size(); ++i) {
             if (!config.passes[i].spawnMaskPath.empty() && fs::exists(config.passes[i].spawnMaskPath)) {
-                if (!masks[(int)i].loadFromFile(config.passes[i].spawnMaskPath)) {
-                    std::cerr << "Failed to load mask: " << config.passes[i].spawnMaskPath << std::endl;
-                }
+                masks[(int)i].loadFromFile(config.passes[i].spawnMaskPath);
             }
         }
 
@@ -358,15 +330,11 @@ int main() {
                 int tId = passNameToId[pass.spawnAround];
                 for (const auto& obj : localObjects) if (obj->getPassId() == tId) targets.push_back(obj->getCenter());
             }
-            
             const sf::Image* currentMask = masks.count((int)passIdx) ? &masks[(int)passIdx] : nullptr;
-
             for (int i = 0; i < pass.roomCount; ++i) {
                 sf::Vector2f sC = targets.empty() ? spawnCenter : targets[rand() % targets.size()];
                 auto posOpt = getPointInCircle(pass.spawnRadius, pass.spawnDispersion, pass.spawnExp, currentMask);
-                if (posOpt) {
-                    localObjects.push_back(ObjectFactory::create(pass, sC + *posOpt, (int)passIdx));
-                }
+                if (posOpt) localObjects.push_back(ObjectFactory::create(pass, sC + *posOpt, (int)passIdx));
             }
             currentStatus = "Processing Physics...";
             separateRooms(localObjects, config, [&](float p) {});
@@ -376,10 +344,8 @@ int main() {
         std::vector<sf::Vector2f> mainPoints;
         for (auto& obj : localObjects) {
             if (auto r = std::dynamic_pointer_cast<Room>(obj)) {
-                auto s = r->getSize();
-                if (s.x > config.mainRoomThreshold && s.y > config.mainRoomThreshold) {
-                    mainPoints.push_back(r->getCenter());
-                }
+                auto s = r->room_shape.getSize();
+                if (s.x > config.mainRoomThreshold && s.y > config.mainRoomThreshold) mainPoints.push_back(r->getCenter());
             }
         }
 
@@ -390,126 +356,66 @@ int main() {
         currentStatus = "Building Corridors...";
         std::vector<sf::RectangleShape> localCorridors;
         std::vector<Edge> refinedGraph; 
-        
         for (const auto& edge : localGraph) {
-            struct Waypoint { sf::Vector2f pos; float t; };
-            std::vector<Waypoint> waypoints;
-            waypoints.push_back({edge.p1, 0.0f});
-            
-            sf::Vector2f mainDir = edge.p2 - edge.p1;
-            std::vector<Waypoint> candidates;
-
+            std::vector<sf::Vector2f> waypoints; waypoints.push_back(edge.p1);
+            std::vector<std::pair<sf::Vector2f, float>> candidates;
             for (const auto& obj : localObjects) {
                 sf::Vector2f center = obj->getCenter();
                 if (length(center - edge.p1) < 1.0f || length(center - edge.p2) < 1.0f) continue;
                 if (distToEdge(center, edge.p1, edge.p2) < config.corridorSnapRadius) {
-                    sf::Vector2f ab = edge.p2 - edge.p1;
-                    sf::Vector2f ap = center - edge.p1;
+                    sf::Vector2f ab = edge.p2 - edge.p1; sf::Vector2f ap = center - edge.p1;
                     float t = dot(ap, ab) / dot(ab, ab);
                     if (t > 0.05f && t < 0.95f) candidates.push_back({center, t});
                 }
             }
-
-            std::sort(candidates.begin(), candidates.end(), [](const Waypoint& a, const Waypoint& b) {
-                return a.t < b.t;
-            });
-
+            std::sort(candidates.begin(), candidates.end(), [](auto& a, auto& b) { return a.second < b.second; });
             for (auto& cand : candidates) {
-                sf::Vector2f lastPos = waypoints.back().pos;
-                sf::Vector2f v1 = cand.pos - lastPos;
-                sf::Vector2f v2 = edge.p2 - cand.pos;
-                
-                if (length(v1) < 1.0f || length(v2) < 1.0f) continue;
-                
+                sf::Vector2f v1 = cand.first - waypoints.back(); sf::Vector2f v2 = edge.p2 - cand.first;
                 float d = dot(normalize(v1), normalize(v2));
-                float bendAngle = std::acos(std::max(-1.0f, std::min(1.0f, d))) * 180.0f / 3.14159265f;
-                
-                if (bendAngle <= config.maxCorridorBendAngle) {
-                    waypoints.push_back(cand);
-                }
+                if (std::acos(std::max(-1.0f, std::min(1.0f, d))) * 180.0f / 3.14159265f <= config.maxCorridorBendAngle) waypoints.push_back(cand.first);
             }
-            waypoints.push_back({edge.p2, 1.0f});
-
+            waypoints.push_back(edge.p2);
             for (size_t i = 0; i < waypoints.size() - 1; ++i) {
-                sf::Vector2f pA = waypoints[i].pos;
-                sf::Vector2f pB = waypoints[i+1].pos;
-
-                float dice = (float)rand() / RAND_MAX;
-                if (dice < config.lShapeProbability) {
-                    sf::Vector2f corner;
-                    if (rand() % 2 == 0) corner = {pB.x, pA.y};
-                    else corner = {pA.x, pB.y};
-
-                    refinedGraph.push_back({pA, corner});
-                    refinedGraph.push_back({corner, pB});
-
+                sf::Vector2f pA = waypoints[i]; sf::Vector2f pB = waypoints[i+1];
+                if ((float)rand() / RAND_MAX < config.lShapeProbability) {
+                    sf::Vector2f corner = (rand() % 2 == 0) ? sf::Vector2f(pB.x, pA.y) : sf::Vector2f(pA.x, pB.y);
+                    refinedGraph.push_back({pA, corner}); refinedGraph.push_back({corner, pB});
                     auto createSegment = [&](sf::Vector2f a, sf::Vector2f b) {
-                        float len = length(b - a);
-                        if (len < 0.1f) return;
-                        sf::RectangleShape c;
-                        c.setFillColor(sf::Color(70, 70, 150));
+                        float len = length(b - a); if (len < 0.1f) return;
+                        sf::RectangleShape c; c.setFillColor(sf::Color(70, 70, 150));
                         c.setSize({len + config.corridorWidth, config.corridorWidth});
                         c.setOrigin({c.getSize().x / 2.0f, c.getSize().y / 2.0f});
-                        c.setPosition((a + b) / 2.0f);
-                        if (std::abs(a.y - b.y) > 0.1f) c.setRotation(sf::degrees(90.0f));
+                        c.setPosition((a + b) / 2.0f); if (std::abs(a.y - b.y) > 0.1f) c.setRotation(sf::degrees(90.0f));
                         localCorridors.push_back(c);
                     };
-                    createSegment(pA, corner);
-                    createSegment(corner, pB);
+                    createSegment(pA, corner); createSegment(corner, pB);
                 } else {
-                    refinedGraph.push_back({pA, pB});
-                    sf::Vector2f diff = pB - pA;
-                    float len = length(diff);
+                    refinedGraph.push_back({pA, pB}); sf::Vector2f diff = pB - pA; float len = length(diff);
                     if (len > 0.1f) {
-                        float angle = std::atan2(diff.y, diff.x) * 180.0f / 3.14159265f;
-                        sf::RectangleShape c;
-                        c.setFillColor(sf::Color(70, 70, 150));
-                        c.setSize({len, config.corridorWidth});
-                        c.setOrigin({len / 2.0f, config.corridorWidth / 2.0f});
-                        c.setPosition((pA + pB) / 2.0f);
-                        c.setRotation(sf::degrees(angle));
+                        sf::RectangleShape c; c.setFillColor(sf::Color(70, 70, 150));
+                        c.setSize({len, config.corridorWidth}); c.setOrigin({len / 2.0f, config.corridorWidth / 2.0f});
+                        c.setPosition((pA + pB) / 2.0f); c.setRotation(sf::degrees(std::atan2(diff.y, diff.x) * 180.0f / 3.14159265f));
                         localCorridors.push_back(c);
                     }
                 }
             }
         }
-
-        currentStatus = "Tagging rooms...";
         for (auto& obj : localObjects) {
             if (auto r = std::dynamic_pointer_cast<Room>(obj)) {
-                auto s = r->getSize();
-                bool isMain = (s.x > config.mainRoomThreshold && s.y > config.mainRoomThreshold);
-
-                if (isMain) {
-                    obj->setTag("main");
+                auto s = r->room_shape.getSize();
+                if (s.x > config.mainRoomThreshold && s.y > config.mainRoomThreshold) {
+                    r->setColor(sf::Color(100, 150, 100)); r->setOutColor(sf::Color::Green);
                 } else {
-                    bool hit = false;
-                    sf::Vector2f rCenter = r->getCenter();
-                    for (const auto& e : refinedGraph) {
-                        if (length(rCenter - e.p1) < 1.0f || length(rCenter - e.p2) < 1.0f) {
-                            hit = true; break;
-                        }
-                    }
-
-                    if (hit) {
-                        obj->setTag("connected");
-                    } else {
-                        obj->setTag("dead");
-                    }
+                    bool hit = false; sf::Vector2f rCenter = r->getCenter();
+                    for (const auto& e : refinedGraph) if (length(rCenter - e.p1) < 1.0f || length(rCenter - e.p2) < 1.0f) { hit = true; break; }
+                    if (hit) { r->setColor(sf::Color(80, 80, 80)); r->setOutColor(sf::Color(150, 150, 150)); }
+                    else { r->setColor(sf::Color(40, 40, 50)); r->setOutColor(sf::Color(80, 80, 100)); }
                 }
-            } else {
-                obj->setTag("default");
             }
         }
-        objects = std::move(localObjects);
-        corridors = std::move(localCorridors);
-        globalTriangles = localTri;
-        globalGraph = refinedGraph;
-        
+        objects = std::move(localObjects); corridors = std::move(localCorridors);
+        globalTriangles = localTri; globalGraph = refinedGraph;
         config.lastDurationMs = internalTimer.getElapsedTime().asMilliseconds();
-        std::ofstream timeFile("last_duration.txt");
-        if (timeFile.is_open()) timeFile << config.lastDurationMs;
-        
         isGenerating = false;
     };
 
@@ -521,96 +427,33 @@ int main() {
     };
 
     trigger();
-    sf::RenderWindow win(sf::VideoMode({windowSize, windowSize}), "Dungeon Gen: Modular & Masked!");
+    sf::RenderWindow win(sf::VideoMode({windowSize, windowSize}), "Legacy Dungeon Gen");
     win.setFramerateLimit(60);
-
-    sf::Font font; 
-    bool hasFont = font.openFromFile("C:/Windows/Fonts/arial.ttf");
-
     while (win.isOpen()) {
         while (const std::optional event = win.pollEvent()) {
             if (event->is<sf::Event::Closed>()) win.close();
             if (const auto* kr = event->getIf<sf::Event::KeyReleased>()) {
                 if (kr->code == sf::Keyboard::Key::R) { config.loadFromFile(configPath); trigger(); }
-                if (kr->code == sf::Keyboard::Key::G) { config.showDebugGraph = !config.showDebugGraph; }
-            }
-            if (const auto* res = event->getIf<sf::Event::Resized>()) {
-                sf::View view = win.getView();
-                view.setSize({(float)res->size.x, (float)res->size.y});
-                win.setView(view);
+                if (kr->code == sf::Keyboard::Key::G) config.showDebugGraph = !config.showDebugGraph;
             }
         }
         win.clear(sf::Color(20, 20, 20));
-        
-        if (isGenerating) {
-            float elapsed = genTimer.getElapsedTime().asMilliseconds();
-            float tProg = elapsed / config.lastDurationMs;
-            if (tProg > 0.95f) {
-                float extra = (elapsed - (config.lastDurationMs * 0.95f)) / 5000.0f;
-                tProg = 0.95f + (0.04f * (1.0f - 1.0f / (1.0f + extra))); 
-            }
-            float bW = 500.0f, bH = 25.0f;
-            sf::Vector2f bPos = {windowSize/2.0f - bW/2.0f, windowSize/2.0f - bH/2.0f};
-            sf::RectangleShape bg({bW, bH}); bg.setPosition(bPos); bg.setFillColor(sf::Color(40, 40, 40));
-            bg.setOutlineColor(sf::Color(100, 100, 100)); bg.setOutlineThickness(2.0f);
-            sf::RectangleShape fill({bW * std::min(tProg, 1.0f), bH}); fill.setPosition(bPos);
-            fill.setFillColor(sf::Color(50, 180, 50));
-            float shimmerPos = std::fmod(elapsed * 0.5f, bW + 100.0f) - 50.0f;
-            sf::RectangleShape shimmer({40.0f, bH});
-            shimmer.setPosition({bPos.x + shimmerPos, bPos.y});
-            shimmer.setFillColor(sf::Color(255, 255, 255, 40));
-            win.draw(bg); win.draw(fill);
-            if (shimmerPos > 0 && shimmerPos < bW * tProg - 40.0f) win.draw(shimmer);
-            if (hasFont) {
-                sf::Text status(font, std::string(currentStatus.load()), 18);
-                status.setFillColor(sf::Color::White);
-                status.setPosition({bPos.x, bPos.y + bH + 10.0f});
-                win.draw(status);
-            }
-        } else {
-            sf::VertexArray delaunayLines(sf::PrimitiveType::Lines);
+        if (isGenerating) { /* progress bar logic... */ } 
+        else {
+            sf::VertexArray dLines(sf::PrimitiveType::Lines);
             for (const auto& t : globalTriangles) {
-                sf::Color c(100, 100, 100, config.showDebugGraph ? 80 : 30);
-                delaunayLines.append(sf::Vertex(t.p1, c)); delaunayLines.append(sf::Vertex(t.p2, c));
-                delaunayLines.append(sf::Vertex(t.p2, c)); delaunayLines.append(sf::Vertex(t.p3, c));
-                delaunayLines.append(sf::Vertex(t.p3, c)); delaunayLines.append(sf::Vertex(t.p1, c));
+                sf::Color c(100, 100, 100, 30);
+                dLines.append(sf::Vertex(t.p1, c)); dLines.append(sf::Vertex(t.p2, c));
+                dLines.append(sf::Vertex(t.p2, c)); dLines.append(sf::Vertex(t.p3, c));
+                dLines.append(sf::Vertex(t.p3, c)); dLines.append(sf::Vertex(t.p1, c));
             }
-            win.draw(delaunayLines);
-
+            win.draw(dLines);
             if (config.showDebugGraph) {
-                sf::VertexArray graphLines(sf::PrimitiveType::Lines);
-                for (const auto& e : globalGraph) {
-                    sf::Color c(255, 255, 0); 
-                    graphLines.append(sf::Vertex(e.p1, c)); graphLines.append(sf::Vertex(e.p2, c));
-                }
-                win.draw(graphLines);
-            } else {
-                for (auto& c : corridors) win.draw(c);
-            }
-
-            for (auto& obj : objects) {
-                sf::ConvexShape poly;
-                auto verts = obj->getVertices();
-                poly.setPointCount(verts.size());
-                for (size_t i = 0; i < verts.size(); ++i) poly.setPoint(i, verts[i]);
-                
-                std::string tag = obj->getTag();
-                if (tag == "main") {
-                    poly.setFillColor(sf::Color(100, 150, 100));
-                    poly.setOutlineColor(sf::Color::Green);
-                } else if (tag == "connected") {
-                    poly.setFillColor(sf::Color(80, 80, 80));
-                    poly.setOutlineColor(sf::Color(150, 150, 150));
-                } else if (tag == "dead") {
-                    poly.setFillColor(sf::Color(40, 40, 50));
-                    poly.setOutlineColor(sf::Color(80, 80, 100));
-                } else {
-                    poly.setFillColor(sf::Color(100, 100, 100));
-                    poly.setOutlineColor(sf::Color(200, 200, 200));
-                }
-                poly.setOutlineThickness(1.0f);
-                win.draw(poly);
-            }
+                sf::VertexArray gLines(sf::PrimitiveType::Lines);
+                for (const auto& e : globalGraph) { sf::Color c(255, 255, 0); gLines.append(sf::Vertex(e.p1, c)); gLines.append(sf::Vertex(e.p2, c)); }
+                win.draw(gLines);
+            } else for (auto& c : corridors) win.draw(c);
+            for (auto& obj : objects) win.draw(*obj);
         }
         win.display();
     }
