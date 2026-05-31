@@ -1,18 +1,20 @@
-# Build and Binary
-build/
-bin/
-*.exe
-*.o
-*.obj
-*.pdb
-*.ilk
+# Rust
+src-tauri/target/
+src-tauri/Cargo.lock
 
-# IDE and System
+# Node.js
+node_modules/
+package-lock.json
+dist/
+dist-tauri/
+
+# IDE & OS
 .vscode/
 .idea/
 .DS_Store
-Thumbs.db
+*.log
+*.exe
 
-# Configs (optional, but usually we keep default.json)
-last_duration.txt
-generation_configs/default.json
+# App Resources
+src-tauri/icons/*.png
+!src-tauri/icons/icon.ico

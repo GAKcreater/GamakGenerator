@@ -1,0 +1,20 @@
+{
+  "productName": "ProcEngine V2",
+  "version": "0.1.0",
+  "identifier": "com.proc-engine.v2",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ProcEngine V2 - Node Editor",
+        "width": 1200,
+        "height": 800
+      }
+    ]
+  }
+}

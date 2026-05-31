@@ -1,0 +1,21 @@
+[package]
+name = "proc-engine"
+version = "0.1.0"
+authors = ["Daniil"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0.0-rc", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0-rc", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+nalgebra = { version = "0.33", features = ["serde-serialize"] }
+petgraph = "0.6"
+thiserror = "1.0"
+
+[features]
+# По умолчанию Tauri не включает ничего лишнего
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
