@@ -59,10 +59,22 @@ pub struct ProcContext {
 // Пример функции, которую мы будем вызывать из React
 #[tauri::command]
 pub fn generate_test_points(count: usize) -> Vec<ProcPoint> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    
+    // Простой LCG генератор для теста, чтобы не тянуть тяжелые либы в команду
+    let mut seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u32;
+    let mut next_rand = || {
+        seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+        (seed % 1000) as f32 / 1000.0
+    };
+
     let mut points = Vec::new();
-    for i in 0..count {
+    for _ in 0..count {
         points.push(ProcPoint {
-            pos: Point2::new(i as f32 * 10.0, 0.0),
+            pos: Point2::new(
+                (next_rand() - 0.5) * 400.0, 
+                (next_rand() - 0.5) * 400.0
+            ),
             attributes: HashMap::new(),
             tags: vec!["test".to_string()],
         });
