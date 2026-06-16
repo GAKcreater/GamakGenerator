@@ -9,7 +9,9 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             engine::generate_test_points,
-            engine::apply_physics
+            engine::apply_physics,
+            engine::get_mask_info,
+            engine::generate_convex_hull
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,5 +1,6 @@
 import React from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { invoke } from "@tauri-apps/api/core";
 
 interface InspectorProps {
   selectedNode: any;
@@ -11,7 +12,7 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
     return (
       <aside className="w-64 bg-zinc-900 border-l border-zinc-800 p-4 flex flex-col items-center justify-center text-zinc-600 z-20 font-sans">
         <div className="text-[10px] font-black uppercase tracking-[0.2em] mb-2 text-center opacity-50 text-zinc-500">Property Inspector</div>
-        <p className="text-[10px] italic text-center">Select a node to edit properties</p>
+        <p className="text-[10px] italic text-center text-zinc-500/50 text-zinc-600">Select a node to edit properties</p>
       </aside>
     );
   }
@@ -28,18 +29,25 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
         multiple: false,
         filters: [{ name: 'Image', extensions: ['png', 'jpg', 'jpeg'] }]
       });
-      if (selected) handleChange('maskPath', selected);
+      if (selected && typeof selected === 'string') {
+        // Получаем размеры изображения из Rust
+        const info: any = await invoke("get_mask_info", { path: selected });
+        
+        onUpdateNodeData(id, { 
+            ...data, 
+            maskPath: selected,
+            maskWidth: info?.width || 0,
+            maskHeight: info?.height || 0
+        });
+      }
     } catch (err) {
       console.error("Dialog error:", err);
     }
   };
 
   // --- Вспомогательные функции для экспоненциальных шкал ---
-  // Превращает 0-100 в 1-10000 (экспоненциально)
   const toExp = (val: number) => Math.round(Math.pow(1.1, val));
   const fromExp = (val: number) => Math.log(val) / Math.log(1.1);
-
-  // Превращает 0-100 в 10-5000 (радиус)
   const toLogRadius = (val: number) => Math.round(10 * Math.pow(1.05, val));
   const fromLogRadius = (val: number) => Math.log(val / 10) / Math.log(1.05);
 
@@ -83,15 +91,15 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
             <div className="grid grid-cols-2 gap-3 pt-2">
               <div className="space-y-1">
                 <div className="text-[9px] font-black text-zinc-500 uppercase">Center X</div>
-                <input type="number" value={data.pointCenterX || 0}
-                  onChange={(e) => handleChange('pointCenterX', parseFloat(e.target.value))}
+                <input type="number" value={data.centerX || 0}
+                  onChange={(e) => handleChange('centerX', parseFloat(e.target.value))}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
                 />
               </div>
               <div className="space-y-1">
                 <div className="text-[9px] font-black text-zinc-500 uppercase">Center Y</div>
-                <input type="number" value={data.pointCenterY || 0}
-                  onChange={(e) => handleChange('pointCenterY', parseFloat(e.target.value))}
+                <input type="number" value={data.centerY || 0}
+                  onChange={(e) => handleChange('centerY', parseFloat(e.target.value))}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
                 />
               </div>
@@ -107,7 +115,12 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
               <button onClick={handleSelectFile} className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-[10px] font-bold text-zinc-300 transition-colors uppercase">
                 {data.maskPath ? 'Change Image' : 'Select Image'}
               </button>
-              {data.maskPath && <div className="mt-2 text-[9px] text-indigo-400 break-all bg-indigo-500/5 p-2 rounded border border-indigo-500/10 italic font-mono uppercase text-[8px]">FILE: {data.maskPath.split('\\').pop()}</div>}
+              {data.maskPath && (
+                <div className="mt-2 space-y-1">
+                    <div className="text-[8px] text-indigo-400 font-mono truncate uppercase">FILE: {data.maskPath.split('\\').pop()}</div>
+                    <div className="text-[8px] text-zinc-500 font-mono">SIZE: {data.maskWidth}x{data.maskHeight}px</div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -158,7 +171,7 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
       </div>
 
       <div className="mt-auto pt-4 border-t border-zinc-800">
-        <div className="text-[9px] text-zinc-600 font-mono flex justify-between uppercase">
+        <div className="text-[9px] text-zinc-600 font-mono flex justify-between uppercase text-zinc-600">
           <span>Engine:</span>
           <span className="text-zinc-400 font-bold tracking-tighter">PROC_V2_RUST</span>
         </div>

@@ -1,11 +1,11 @@
 import React, { useRef, useEffect, useState } from 'react';
 
 interface ViewportProps {
-  points: any[];
+  entities: any[];
   selectedNode: any | null;
 }
 
-export const Viewport: React.FC<ViewportProps> = ({ points, selectedNode }) => {
+export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const parentRef = useRef<HTMLDivElement>(null);
   
@@ -41,12 +41,41 @@ export const Viewport: React.FC<ViewportProps> = ({ points, selectedNode }) => {
       ctx.beginPath(); ctx.moveTo(-gridLimit, i); ctx.lineTo(gridLimit, i); ctx.stroke();
     }
 
-    // Points
-    ctx.fillStyle = '#818cf8';
-    points.forEach(p => {
-      ctx.beginPath();
-      ctx.arc(p.pos[0], p.pos[1], 2 / zoom, 0, Math.PI * 2);
-      ctx.fill();
+    // Entities Rendering
+    entities.forEach(entity => {
+      if (entity.type === 'Point') {
+        const p = entity.data;
+        ctx.fillStyle = '#facc15'; // Yellow for points
+        ctx.beginPath();
+        ctx.arc(p.pos[0], p.pos[1], 2 / zoom, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (entity.type === 'Polygon') {
+        const poly = entity.data;
+        if (poly.exterior && poly.exterior.length > 0) {
+            ctx.strokeStyle = '#3b82f6'; // Blue for polygons
+            ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+            ctx.lineWidth = 2 / zoom;
+            
+            ctx.beginPath();
+            ctx.moveTo(poly.exterior[0][0], poly.exterior[0][1]);
+            for (let i = 1; i < poly.exterior.length; i++) {
+                ctx.lineTo(poly.exterior[i][0], poly.exterior[i][1]);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Draw vertices
+            ctx.fillStyle = '#60a5fa';
+            poly.exterior.forEach((pt: any) => {
+                ctx.beginPath();
+                ctx.arc(pt[0], pt[1], 3 / zoom, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+      }
     });
 
     // World Center Marker (0,0) - Red
@@ -64,8 +93,8 @@ export const Viewport: React.FC<ViewportProps> = ({ points, selectedNode }) => {
       
       // Point Scatter Marker (Blue)
       if (data.label === 'POINT SCATTER') {
-        const cx = data.pointCenterX || 0;
-        const cy = data.pointCenterY || 0;
+        const cx = data.centerX || 0;
+        const cy = data.centerY || 0;
         const radius = data.radius || 200;
 
         ctx.strokeStyle = '#3b82f6';
@@ -88,7 +117,20 @@ export const Viewport: React.FC<ViewportProps> = ({ points, selectedNode }) => {
       if (data.label === 'IMAGE MASK') {
         const cx = data.centerX || 0;
         const cy = data.centerY || 0;
+        const scale = data.maskScale || 1.0;
+        const w = (data.maskWidth || 0) * scale;
+        const h = (data.maskHeight || 0) * scale;
 
+        // Draw Mask Outline
+        if (w > 0 && h > 0) {
+            ctx.strokeStyle = '#10b981';
+            ctx.setLineDash([10 / zoom, 10 / zoom]);
+            ctx.lineWidth = 1 / zoom;
+            ctx.strokeRect(cx - w/2, cy - h/2, w, h);
+            ctx.setLineDash([]);
+        }
+
+        // Draw Center Cross
         ctx.strokeStyle = '#10b981';
         ctx.lineWidth = 2 / zoom;
         ctx.beginPath();
@@ -98,12 +140,12 @@ export const Viewport: React.FC<ViewportProps> = ({ points, selectedNode }) => {
 
         ctx.fillStyle = '#10b981';
         ctx.font = `${10 / zoom}px monospace`;
-        ctx.fillText(`MASK_CENTER (${cx}, ${cy})`, cx + 8/zoom, cy + 4/zoom);
+        ctx.fillText(`MASK_BOUNDS (${data.maskWidth}x${data.maskHeight})`, cx - w/2, cy - h/2 - 5/zoom);
       }
     }
 
     ctx.restore();
-  }, [points, offset, zoom, selectedNode]);
+  }, [entities, offset, zoom, selectedNode]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button === 1 || e.button === 0) {
@@ -145,7 +187,7 @@ export const Viewport: React.FC<ViewportProps> = ({ points, selectedNode }) => {
         </div>
       </div>
       <div className="p-3 bg-zinc-900 border-t border-zinc-800 flex justify-between items-center text-[9px] text-zinc-500 font-mono italic uppercase">
-        <span>BUFF: {points.length} pts</span>
+        <span>BUFF: {entities.length} entities</span>
         <span>Drag LMB to Pan | Wheel to Zoom</span>
       </div>
     </div>

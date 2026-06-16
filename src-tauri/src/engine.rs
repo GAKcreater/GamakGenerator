@@ -56,6 +56,21 @@ pub struct ProcContext {
     pub layers: HashMap<String, Vec<ProcEntity>>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MaskInfo {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[tauri::command]
+pub fn get_mask_info(path: String) -> Option<MaskInfo> {
+    use image::GenericImageView;
+    image::open(path).ok().map(|img| {
+        let (w, h) = img.dimensions();
+        MaskInfo { width: w, height: h }
+    })
+}
+
 // Команда для применения физики расталкивания
 #[tauri::command]
 pub fn apply_physics(mut points: Vec<ProcPoint>, iterations: usize) -> Vec<ProcPoint> {
@@ -79,7 +94,6 @@ pub fn apply_physics(mut points: Vec<ProcPoint>, iterations: usize) -> Vec<ProcP
                     let push = dir * (overlap * 0.5);
                     
                     points[i].pos += push;
-                    // points[j].pos -= push; // Вторая точка сдвинется на своей итерации
                     moved = true;
                 }
             }
@@ -134,7 +148,7 @@ pub fn generate_test_points(
             let mx = (((x - mask_center_x) / mask_scale) + w as f32 / 2.0) as i32;
             let my = (((y - mask_center_y) / mask_scale) + h as f32 / 2.0) as i32;
 
-            if mx >= 0 && mx < w as i32 && my >= 0 && my < h as i32 {
+            if mx >= 0 && mx < (w as i32) && my >= 0 && my < (h as i32) {
                 let pixel = mask.get_pixel(mx as u32, my as u32);
                 let brightness = pixel[0] as f32 / 255.0;
                 
@@ -154,4 +168,50 @@ pub fn generate_test_points(
     }
     
     points
+}
+
+fn cross_product(o: Point2<f32>, a: Point2<f32>, b: Point2<f32>) -> f32 {
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+}
+
+#[tauri::command]
+pub fn generate_convex_hull(points: Vec<ProcPoint>) -> ProcPolygon {
+    if points.len() <= 2 {
+        return ProcPolygon {
+            exterior: points.iter().map(|p| p.pos).collect(),
+            holes: vec![],
+            attributes: HashMap::new(),
+            tags: vec!["insufficient_points".to_string()],
+        };
+    }
+
+    let mut pts: Vec<Point2<f32>> = points.iter().map(|p| p.pos).collect();
+    pts.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap().then(a.y.partial_cmp(&b.y).unwrap()));
+
+    let mut lower = Vec::new();
+    for p in &pts {
+        while lower.len() >= 2 && cross_product(lower[lower.len() - 2], lower[lower.len() - 1], *p) <= 0.0 {
+            lower.pop();
+        }
+        lower.push(*p);
+    }
+
+    let mut upper = Vec::new();
+    for p in pts.iter().rev() {
+        while upper.len() >= 2 && cross_product(upper[upper.len() - 2], upper[upper.len() - 1], *p) <= 0.0 {
+            upper.pop();
+        }
+        upper.push(*p);
+    }
+
+    lower.pop();
+    upper.pop();
+    lower.extend(upper);
+
+    ProcPolygon {
+        exterior: lower,
+        holes: vec![],
+        attributes: HashMap::new(),
+        tags: vec!["convex_hull".to_string()],
+    }
 }
