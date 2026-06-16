@@ -14,13 +14,29 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
   const [isDragging, setIsDragging] = useState(false);
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
 
+  // Эффект для отслеживания изменения размера родителя
+  useEffect(() => {
+    const parent = parentRef.current;
+    const canvas = canvasRef.current;
+    if (!parent || !canvas) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        canvas.width = entry.contentRect.width;
+        canvas.height = entry.contentRect.height;
+        // После изменения размера нужно перерисовать (это вызовет следующий useEffect)
+      }
+    });
+
+    resizeObserver.observe(parent);
+    return () => resizeObserver.disconnect();
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !parentRef.current) return;
+    const parent = parentRef.current;
+    if (!canvas || !parent) return;
     
-    canvas.width = parentRef.current.clientWidth;
-    canvas.height = parentRef.current.clientHeight;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -45,7 +61,7 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
     entities.forEach(entity => {
       if (entity.type === 'Point') {
         const p = entity.data;
-        ctx.fillStyle = '#facc15'; // Yellow for points
+        ctx.fillStyle = '#facc15'; 
         ctx.beginPath();
         ctx.arc(p.pos[0], p.pos[1], 2 / zoom, 0, Math.PI * 2);
         ctx.fill();
@@ -54,7 +70,7 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
       if (entity.type === 'Polygon') {
         const poly = entity.data;
         if (poly.exterior && poly.exterior.length > 0) {
-            ctx.strokeStyle = '#3b82f6'; // Blue for polygons
+            ctx.strokeStyle = '#3b82f6'; 
             ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
             ctx.lineWidth = 2 / zoom;
             
@@ -67,7 +83,6 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
             ctx.fill();
             ctx.stroke();
 
-            // Draw vertices
             ctx.fillStyle = '#60a5fa';
             poly.exterior.forEach((pt: any) => {
                 ctx.beginPath();
@@ -87,41 +102,32 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
     ctx.moveTo(0, -markerSize); ctx.lineTo(0, markerSize);
     ctx.stroke();
 
-    // --- Helper Markers for Selected Node ---
+    // Helper Markers...
     if (selectedNode) {
       const { data } = selectedNode;
-      
-      // Point Scatter Marker (Blue)
       if (data.label === 'POINT SCATTER') {
         const cx = data.centerX || 0;
         const cy = data.centerY || 0;
         const radius = data.radius || 200;
-
         ctx.strokeStyle = '#3b82f6';
         ctx.setLineDash([5 / zoom, 5 / zoom]);
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
-
         ctx.fillStyle = '#3b82f6';
         ctx.beginPath();
         ctx.arc(cx, cy, 4 / zoom, 0, Math.PI * 2);
         ctx.fill();
-        
         ctx.font = `${10 / zoom}px monospace`;
         ctx.fillText(`SCATTER_CENTER (${cx}, ${cy})`, cx + 8/zoom, cy + 4/zoom);
       }
-
-      // Image Mask Marker (Green)
       if (data.label === 'IMAGE MASK') {
         const cx = data.centerX || 0;
         const cy = data.centerY || 0;
         const scale = data.maskScale || 1.0;
         const w = (data.maskWidth || 0) * scale;
         const h = (data.maskHeight || 0) * scale;
-
-        // Draw Mask Outline
         if (w > 0 && h > 0) {
             ctx.strokeStyle = '#10b981';
             ctx.setLineDash([10 / zoom, 10 / zoom]);
@@ -129,15 +135,12 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
             ctx.strokeRect(cx - w/2, cy - h/2, w, h);
             ctx.setLineDash([]);
         }
-
-        // Draw Center Cross
         ctx.strokeStyle = '#10b981';
         ctx.lineWidth = 2 / zoom;
         ctx.beginPath();
         ctx.moveTo(cx - markerSize, cy); ctx.lineTo(cx + markerSize, cy);
         ctx.moveTo(cx, cy - markerSize); ctx.lineTo(cx, cy + markerSize);
         ctx.stroke();
-
         ctx.fillStyle = '#10b981';
         ctx.font = `${10 / zoom}px monospace`;
         ctx.fillText(`MASK_BOUNDS (${data.maskWidth}x${data.maskHeight})`, cx - w/2, cy - h/2 - 5/zoom);
@@ -172,8 +175,8 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
   };
 
   return (
-    <div className="flex-1 min-w-[400px] bg-zinc-950 border-l border-zinc-800 flex flex-col z-20 shadow-2xl overflow-hidden font-sans">
-      <div className="p-3 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/80 backdrop-blur-sm">
+    <div className="flex-1 min-w-0 bg-zinc-950 flex flex-col z-20 shadow-2xl font-sans overflow-hidden">
+      <div className="p-3 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/80 backdrop-blur-sm shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_8px_#6366f1]"></div>
           <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Interactive Viewport</span>
@@ -186,7 +189,7 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
           ZOOM: {(zoom * 100).toFixed(0)}% | PAN: {offset.x.toFixed(0)},{offset.y.toFixed(0)}
         </div>
       </div>
-      <div className="p-3 bg-zinc-900 border-t border-zinc-800 flex justify-between items-center text-[9px] text-zinc-500 font-mono italic uppercase">
+      <div className="p-3 bg-zinc-900 border-t border-zinc-800 flex justify-between items-center text-[9px] text-zinc-500 font-mono italic uppercase shrink-0">
         <span>BUFF: {entities.length} entities</span>
         <span>Drag LMB to Pan | Wheel to Zoom</span>
       </div>

@@ -8,15 +8,6 @@ interface InspectorProps {
 }
 
 export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNodeData }) => {
-  if (!selectedNode) {
-    return (
-      <aside className="w-64 bg-zinc-900 border-l border-zinc-800 p-4 flex flex-col items-center justify-center text-zinc-600 z-20 font-sans">
-        <div className="text-[10px] font-black uppercase tracking-[0.2em] mb-2 text-center opacity-50 text-zinc-500">Property Inspector</div>
-        <p className="text-[10px] italic text-center text-zinc-500/50 text-zinc-600">Select a node to edit properties</p>
-      </aside>
-    );
-  }
-
   const { id, data } = selectedNode;
 
   const handleChange = (key: string, value: any) => {
@@ -52,7 +43,7 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
   const fromLogRadius = (val: number) => Math.log(val / 10) / Math.log(1.05);
 
   return (
-    <aside className="w-64 bg-zinc-900 border-l border-zinc-800 p-4 flex flex-col gap-6 z-20 overflow-y-auto font-sans">
+    <aside className="w-64 min-w-[200px] max-w-[500px] bg-zinc-900 border-l border-zinc-800 p-4 flex flex-col gap-6 z-20 overflow-y-auto font-sans resize-x">
       <div>
         <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Entity ID</div>
         <div className="text-[9px] font-mono text-indigo-400 bg-indigo-500/5 px-2 py-1 rounded border border-indigo-500/20 truncate uppercase">{id}</div>

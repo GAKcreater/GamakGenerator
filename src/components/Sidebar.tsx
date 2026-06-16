@@ -10,7 +10,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onAddNode }) => {
   const categories = Array.from(new Set(Object.values(NODE_REGISTRY).map(n => n.category)));
 
   return (
-    <aside className="w-64 bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col gap-6 z-20 overflow-y-auto shadow-2xl">
+    <aside className="w-64 min-w-[150px] max-w-[400px] bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col gap-6 z-20 overflow-y-auto shadow-2xl resize-x">
       <div className="flex items-center gap-2 px-1">
         <div className="w-1.5 h-4 bg-indigo-500 rounded-full"></div>
         <div className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">Node Library</div>
