@@ -5,9 +5,9 @@ export const NODE_REGISTRY: Record<string, NodeDefinition> = {
     type: 'procNode',
     label: 'POINT SCATTER',
     category: 'Generator',
-    description: 'Generates random point cloud',
+    description: 'Generates random point cloud using masks',
     inputs: [
-      { name: 'mask', type: PortType.Mask, description: 'Spawn probability map' }
+      { name: 'masks', type: PortType.Mask, description: 'One or more mask constraints' }
     ],
     outputs: [
       { name: 'points', type: PortType.Points, description: 'Generated point cloud' }
@@ -16,7 +16,11 @@ export const NODE_REGISTRY: Record<string, NodeDefinition> = {
       count: 50,
       radius: 200,
       centerX: 0,
-      centerY: 0
+      centerY: 0,
+      seed: 42,
+      distribution: 'Uniform',
+      gravity: 0.0,
+      clumping: 0.0
     }
   },
   'IMAGE_MASK': {

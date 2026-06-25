@@ -21,9 +21,7 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
         filters: [{ name: 'Image', extensions: ['png', 'jpg', 'jpeg'] }]
       });
       if (selected && typeof selected === 'string') {
-        // Получаем размеры изображения из Rust
         const info: any = await invoke("get_mask_info", { path: selected });
-        
         onUpdateNodeData(id, { 
             ...data, 
             maskPath: selected,
@@ -36,14 +34,19 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
     }
   };
 
-  // --- Вспомогательные функции для экспоненциальных шкал ---
-  const toExp = (val: number) => Math.round(Math.pow(1.1, val));
-  const fromExp = (val: number) => Math.log(val) / Math.log(1.1);
-  const toLogRadius = (val: number) => Math.round(10 * Math.pow(1.05, val));
-  const fromLogRadius = (val: number) => Math.log(val / 10) / Math.log(1.05);
+  // --- ЭКСПОНЕНЦИАЛЬНАЯ ЛОГИКА ---
+  const valToPos = (val: number, min: number, max: number) => {
+    if (val < min) val = min;
+    return ((Math.log(val) - Math.log(min)) / (Math.log(max) - Math.log(min))) * 100;
+  };
+
+  const posToVal = (pos: number, min: number, max: number) => {
+    const v = Math.exp(Math.log(min) + (pos / 100) * (Math.log(max) - Math.log(min)));
+    return Math.round(v);
+  };
 
   return (
-    <aside className="w-64 min-w-[200px] max-w-[500px] bg-zinc-900 border-l border-zinc-800 p-4 flex flex-col gap-6 z-20 overflow-y-auto font-sans resize-x">
+    <aside className="w-full h-full bg-zinc-900 p-4 flex flex-col gap-6 overflow-y-auto font-sans border-l border-zinc-800 shadow-inner">
       <div>
         <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Entity ID</div>
         <div className="text-[9px] font-mono text-indigo-400 bg-indigo-500/5 px-2 py-1 rounded border border-indigo-500/20 truncate uppercase">{id}</div>
@@ -56,26 +59,68 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
         {data.label === 'POINT SCATTER' && (
           <div className="space-y-4">
             <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-black text-zinc-500 uppercase">
+                <span>Distribution Method</span>
+              </div>
+              <select 
+                value={data.distribution || 'Uniform'}
+                onChange={(e) => handleChange('distribution', e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-bold"
+              >
+                <option value="Uniform">Uniform (Circle)</option>
+                <option value="Gaussian">Gaussian (Normal)</option>
+                <option value="Square">Legacy Square</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
               <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
                 <span>Point Count</span>
-                <span className="text-indigo-400 font-mono">{data.count || 50}</span>
+                <span className="text-indigo-400 font-mono font-black">{data.count || 50}</span>
               </div>
-              <input type="range" min="1" max="100" 
-                value={fromExp(data.count || 50)}
-                onChange={(e) => handleChange('count', toExp(parseInt(e.target.value)))}
-                className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              <input type="range" min="0" max="100" 
+                value={valToPos(data.count || 50, 1, 2000)}
+                onChange={(e) => handleChange('count', posToVal(parseInt(e.target.value), 1, 2000))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
             </div>
             
             <div className="space-y-2">
               <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
-                <span>Scatter Radius</span>
-                <span className="text-indigo-400 font-mono">{data.radius || 200}</span>
+                <span>Spawn Radius</span>
+                <span className="text-indigo-400 font-mono font-black">{data.radius || 200}</span>
               </div>
-              <input type="range" min="0" max="120" 
-                value={fromLogRadius(data.radius || 200)}
-                onChange={(e) => handleChange('radius', toLogRadius(parseInt(e.target.value)))}
-                className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              <input type="range" min="0" max="100" 
+                value={valToPos(data.radius || 200, 10, 5000)}
+                onChange={(e) => handleChange('radius', posToVal(parseInt(e.target.value), 10, 5000))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
+                <span>Edge Gravity</span>
+                <span className="text-indigo-400 font-mono font-black">{(data.gravity || 0).toFixed(2)}</span>
+              </div>
+              <input type="range" min="-1" max="1" step="0.01"
+                value={data.gravity || 0}
+                onChange={(e) => handleChange('gravity', parseFloat(e.target.value))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+              <div className="flex justify-between text-[7px] text-zinc-600 uppercase font-black">
+                <span>Center</span><span>None</span><span>Edges</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
+                <span>Clumping</span>
+                <span className="text-indigo-400 font-mono font-black">{(data.clumping || 0).toFixed(2)}</span>
+              </div>
+              <input type="range" min="0" max="1" step="0.01"
+                value={data.clumping || 0}
+                onChange={(e) => handleChange('clumping', parseFloat(e.target.value))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
             </div>
 
@@ -94,6 +139,14 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
                 />
               </div>
+            </div>
+            
+            <div className="space-y-1">
+                <div className="text-[9px] font-black text-zinc-500 uppercase">Random Seed</div>
+                <input type="number" value={data.seed || 42}
+                  onChange={(e) => handleChange('seed', parseInt(e.target.value))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
+                />
             </div>
           </div>
         )}
@@ -113,34 +166,6 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
                 </div>
               )}
             </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
-                <span>Mask Scale</span>
-                <span className="text-indigo-400 font-mono">{data.maskScale || 1.0}x</span>
-              </div>
-              <input type="range" min="0.1" max="10.0" step="0.1" value={data.maskScale || 1.0}
-                onChange={(e) => handleChange('maskScale', parseFloat(e.target.value))}
-                className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <div className="space-y-1">
-                <div className="text-[9px] font-black text-zinc-500 uppercase">Center X</div>
-                <input type="number" value={data.centerX || 0}
-                  onChange={(e) => handleChange('centerX', parseFloat(e.target.value))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
-                />
-              </div>
-              <div className="space-y-1">
-                <div className="text-[9px] font-black text-zinc-500 uppercase">Center Y</div>
-                <input type="number" value={data.centerY || 0}
-                  onChange={(e) => handleChange('centerY', parseFloat(e.target.value))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
-                />
-              </div>
-            </div>
           </div>
         )}
 
@@ -150,22 +175,21 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
             <div className="space-y-2">
               <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
                 <span>Separation Iterations</span>
-                <span className="text-indigo-400 font-mono">{data.iterations || 10}</span>
+                <span className="text-indigo-400 font-mono font-black">{data.iterations || 10}</span>
               </div>
-              <input type="range" min="1" max="100" value={data.iterations || 10}
-                onChange={(e) => handleChange('iterations', parseInt(e.target.value))}
-                className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              <input type="range" min="0" max="100" 
+                value={valToPos(data.iterations || 10, 1, 200)}
+                onChange={(e) => handleChange('iterations', posToVal(parseInt(e.target.value), 1, 200))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
             </div>
           </div>
         )}
       </div>
 
-      <div className="mt-auto pt-4 border-t border-zinc-800">
-        <div className="text-[9px] text-zinc-600 font-mono flex justify-between uppercase text-zinc-600">
+      <div className="mt-auto pt-4 border-t border-zinc-800 text-[9px] text-zinc-600 font-mono flex justify-between uppercase">
           <span>Engine:</span>
-          <span className="text-zinc-400 font-bold tracking-tighter">PROC_V2_RUST</span>
-        </div>
+          <span className="text-zinc-400 font-bold tracking-tighter">PROC_V2_REANIMATED</span>
       </div>
     </aside>
   );

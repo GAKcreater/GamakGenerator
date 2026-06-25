@@ -14,144 +14,100 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
   const [isDragging, setIsDragging] = useState(false);
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
 
-  // Эффект для отслеживания изменения размера родителя
+  // Постоянная проверка размеров и отрисовка
   useEffect(() => {
-    const parent = parentRef.current;
-    const canvas = canvasRef.current;
-    if (!parent || !canvas) return;
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        canvas.width = entry.contentRect.width;
-        canvas.height = entry.contentRect.height;
-        // После изменения размера нужно перерисовать (это вызовет следующий useEffect)
-      }
-    });
-
-    resizeObserver.observe(parent);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const parent = parentRef.current;
-    if (!canvas || !parent) return;
+    let frameId: number;
     
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.fillStyle = '#09090b';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.save();
-    ctx.translate(canvas.width / 2 + offset.x, canvas.height / 2 + offset.y);
-    ctx.scale(zoom, zoom);
-
-    // Grid
-    ctx.strokeStyle = '#18181b';
-    ctx.lineWidth = 1 / zoom;
-    const gridStep = 40;
-    const gridLimit = 2000;
-    for (let i = -gridLimit; i <= gridLimit; i += gridStep) {
-      ctx.beginPath(); ctx.moveTo(i, -gridLimit); ctx.lineTo(i, gridLimit); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(-gridLimit, i); ctx.lineTo(gridLimit, i); ctx.stroke();
-    }
-
-    // Entities Rendering
-    entities.forEach(entity => {
-      if (entity.type === 'Point') {
-        const p = entity.data;
-        ctx.fillStyle = '#facc15'; 
-        ctx.beginPath();
-        ctx.arc(p.pos[0], p.pos[1], 2 / zoom, 0, Math.PI * 2);
-        ctx.fill();
+    const render = () => {
+      const canvas = canvasRef.current;
+      const parent = parentRef.current;
+      if (!canvas || !parent) {
+        frameId = requestAnimationFrame(render);
+        return;
       }
 
-      if (entity.type === 'Polygon') {
-        const poly = entity.data;
-        if (poly.exterior && poly.exterior.length > 0) {
-            ctx.strokeStyle = '#3b82f6'; 
-            ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
-            ctx.lineWidth = 2 / zoom;
-            
-            ctx.beginPath();
-            ctx.moveTo(poly.exterior[0][0], poly.exterior[0][1]);
-            for (let i = 1; i < poly.exterior.length; i++) {
-                ctx.lineTo(poly.exterior[i][0], poly.exterior[i][1]);
-            }
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
+      // Синхронизация размера
+      if (canvas.width !== parent.clientWidth || canvas.height !== parent.clientHeight) {
+          canvas.width = parent.clientWidth;
+          canvas.height = parent.clientHeight;
+      }
 
-            ctx.fillStyle = '#60a5fa';
-            poly.exterior.forEach((pt: any) => {
-                ctx.beginPath();
-                ctx.arc(pt[0], pt[1], 3 / zoom, 0, Math.PI * 2);
-                ctx.fill();
-            });
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      try {
+        // Очистка
+        ctx.fillStyle = '#09090b';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.save();
+        ctx.translate(canvas.width / 2 + offset.x, canvas.height / 2 + offset.y);
+        ctx.scale(zoom, zoom);
+
+        // Сетка
+        ctx.strokeStyle = '#1a1a1e';
+        ctx.lineWidth = 1 / zoom;
+        const gridStep = 50;
+        const limit = 5000;
+        ctx.beginPath();
+        for (let i = -limit; i <= limit; i += gridStep) {
+          ctx.moveTo(i, -limit); ctx.lineTo(i, limit);
+          ctx.moveTo(-limit, i); ctx.lineTo(limit, i);
         }
-      }
-    });
-
-    // World Center Marker (0,0) - Red
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 2 / zoom;
-    const markerSize = 10 / zoom;
-    ctx.beginPath();
-    ctx.moveTo(-markerSize, 0); ctx.lineTo(markerSize, 0);
-    ctx.moveTo(0, -markerSize); ctx.lineTo(0, markerSize);
-    ctx.stroke();
-
-    // Helper Markers...
-    if (selectedNode) {
-      const { data } = selectedNode;
-      if (data.label === 'POINT SCATTER') {
-        const cx = data.centerX || 0;
-        const cy = data.centerY || 0;
-        const radius = data.radius || 200;
-        ctx.strokeStyle = '#3b82f6';
-        ctx.setLineDash([5 / zoom, 5 / zoom]);
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = '#3b82f6';
-        ctx.beginPath();
-        ctx.arc(cx, cy, 4 / zoom, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.font = `${10 / zoom}px monospace`;
-        ctx.fillText(`SCATTER_CENTER (${cx}, ${cy})`, cx + 8/zoom, cy + 4/zoom);
-      }
-      if (data.label === 'IMAGE MASK') {
-        const cx = data.centerX || 0;
-        const cy = data.centerY || 0;
-        const scale = data.maskScale || 1.0;
-        const w = (data.maskWidth || 0) * scale;
-        const h = (data.maskHeight || 0) * scale;
-        if (w > 0 && h > 0) {
-            ctx.strokeStyle = '#10b981';
-            ctx.setLineDash([10 / zoom, 10 / zoom]);
-            ctx.lineWidth = 1 / zoom;
-            ctx.strokeRect(cx - w/2, cy - h/2, w, h);
-            ctx.setLineDash([]);
-        }
-        ctx.strokeStyle = '#10b981';
+
+        // Центр мира
+        ctx.strokeStyle = '#f43f5e';
         ctx.lineWidth = 2 / zoom;
         ctx.beginPath();
-        ctx.moveTo(cx - markerSize, cy); ctx.lineTo(cx + markerSize, cy);
-        ctx.moveTo(cx, cy - markerSize); ctx.lineTo(cx, cy + markerSize);
+        ctx.moveTo(-20/zoom, 0); ctx.lineTo(20/zoom, 0);
+        ctx.moveTo(0, -20/zoom); ctx.lineTo(0, 20/zoom);
         ctx.stroke();
-        ctx.fillStyle = '#10b981';
-        ctx.font = `${10 / zoom}px monospace`;
-        ctx.fillText(`MASK_BOUNDS (${data.maskWidth}x${data.maskHeight})`, cx - w/2, cy - h/2 - 5/zoom);
-      }
-    }
 
-    ctx.restore();
+        // Отрисовка сущностей
+        if (entities && entities.length > 0) {
+            entities.forEach(ent => {
+                if (ent.type === 'Point') {
+                    ctx.fillStyle = '#fbbf24';
+                    ctx.beginPath();
+                    ctx.arc(ent.data.pos[0], ent.data.pos[1], 3/zoom, 0, Math.PI*2);
+                    ctx.fill();
+                }
+                if (ent.type === 'Polygon' && ent.data.exterior) {
+                    ctx.strokeStyle = '#3b82f6';
+                    ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+                    ctx.beginPath();
+                    ctx.moveTo(ent.data.exterior[0][0], ent.data.exterior[0][1]);
+                    ent.data.exterior.forEach((p: any) => ctx.lineTo(p[0], p[1]));
+                    ctx.closePath();
+                    ctx.fill(); ctx.stroke();
+                }
+            });
+        }
+
+        // Хелперы
+        if (selectedNode?.data?.label === 'POINT SCATTER') {
+            const { center_x: cx = 0, center_y: cy = 0, radius = 200 } = selectedNode.data;
+            ctx.strokeStyle = '#6366f1';
+            ctx.setLineDash([5/zoom, 5/zoom]);
+            ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI*2); ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        ctx.restore();
+      } catch (e) {
+        console.error("Render Error:", e);
+      }
+
+      frameId = requestAnimationFrame(render);
+    };
+
+    frameId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(frameId);
   }, [entities, offset, zoom, selectedNode]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 1 || e.button === 0) {
+    if (e.button === 0 || e.button === 1) {
       setIsDragging(true);
       setLastMousePos({ x: e.clientX, y: e.clientY });
     }
@@ -159,40 +115,41 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isDragging) {
-      const dx = e.clientX - lastMousePos.x;
-      const dy = e.clientY - lastMousePos.y;
-      setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      setOffset(prev => ({
+        x: prev.x + (e.clientX - lastMousePos.x),
+        y: prev.y + (e.clientY - lastMousePos.y)
+      }));
       setLastMousePos({ x: e.clientX, y: e.clientY });
     }
   };
 
-  const handleMouseUp = () => setIsDragging(false);
-
-  const handleWheel = (e: React.WheelEvent) => {
-    const scaleFactor = 1.1;
-    const delta = e.deltaY > 0 ? 1 / scaleFactor : scaleFactor;
-    setZoom(prev => Math.max(0.1, Math.min(prev * delta, 20)));
-  };
-
   return (
-    <div className="flex-1 min-w-0 bg-zinc-950 flex flex-col z-20 shadow-2xl font-sans overflow-hidden">
-      <div className="p-3 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/80 backdrop-blur-sm shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_8px_#6366f1]"></div>
-          <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Interactive Viewport</span>
+    <div ref={parentRef} 
+         className="flex-1 w-full h-full relative bg-zinc-950 overflow-hidden cursor-crosshair"
+         onMouseDown={handleMouseDown}
+         onMouseMove={handleMouseMove}
+         onMouseUp={() => setIsDragging(false)}
+         onMouseLeave={() => setIsDragging(false)}
+         onWheel={(e) => setZoom(z => Math.max(0.01, Math.min(z * (e.deltaY > 0 ? 0.9 : 1.1), 50)))}
+    >
+      <canvas ref={canvasRef} className="block w-full h-full" style={{ background: '#09090b' }} />
+      
+      {/* Статусная панель */}
+      <div className="absolute bottom-4 left-4 flex flex-col gap-1 pointer-events-none">
+        <div className="bg-black/80 backdrop-blur-md border border-white/10 px-2 py-1 rounded text-[10px] font-mono">
+          <span className="text-zinc-500 uppercase">Status:</span> <span className="text-emerald-400 font-bold">READY</span>
         </div>
-        <button onClick={() => { setOffset({ x: 0, y: 0 }); setZoom(1); }} className="text-[9px] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded border border-zinc-700 font-bold transition-colors">RESET CAM</button>
-      </div>
-      <div ref={parentRef} className="flex-1 relative bg-black overflow-hidden cursor-move" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onWheel={handleWheel}>
-        <canvas ref={canvasRef} className="w-full h-full" />
-        <div className="absolute bottom-4 left-4 bg-black/50 px-2 py-1 rounded text-[9px] font-mono text-zinc-500 border border-zinc-800 uppercase">
-          ZOOM: {(zoom * 100).toFixed(0)}% | PAN: {offset.x.toFixed(0)},{offset.y.toFixed(0)}
+        <div className="bg-black/80 backdrop-blur-md border border-white/10 px-2 py-1 rounded text-[10px] font-mono">
+          <span className="text-zinc-500 uppercase">Buffer:</span> <span className="text-indigo-400 font-bold">{entities.length} items</span>
         </div>
       </div>
-      <div className="p-3 bg-zinc-900 border-t border-zinc-800 flex justify-between items-center text-[9px] text-zinc-500 font-mono italic uppercase shrink-0">
-        <span>BUFF: {entities.length} entities</span>
-        <span>Drag LMB to Pan | Wheel to Zoom</span>
-      </div>
+
+      <button 
+        onClick={() => {setOffset({x:0,y:0}); setZoom(1);}}
+        className="absolute top-4 right-4 bg-zinc-800 hover:bg-zinc-700 text-white text-[9px] font-bold px-2 py-1 rounded border border-white/5 transition-all"
+      >
+        RESET CAMERA
+      </button>
     </div>
   );
 };

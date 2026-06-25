@@ -6,8 +6,12 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onAddNode }) => {
-  // Группируем ноды по категориям
   const categories = Array.from(new Set(Object.values(NODE_REGISTRY).map(n => n.category)));
+
+  const onDragStart = (event: React.DragEvent, nodeType: string, label: string, description: string) => {
+    event.dataTransfer.setData('application/reactflow', JSON.stringify({ type: nodeType, label, description }));
+    event.dataTransfer.effectAllowed = 'move';
+  };
 
   return (
     <aside className="w-64 min-w-[150px] max-w-[400px] bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col gap-6 z-20 overflow-y-auto shadow-2xl resize-x">
@@ -28,8 +32,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onAddNode }) => {
                 .map(([key, def]) => (
                   <button
                     key={key}
+                    draggable
+                    onDragStart={(e) => onDragStart(e, def.type, def.label, def.description)}
                     onClick={() => onAddNode(def.type, def.label, def.description)}
-                    className="flex flex-col items-start p-3 bg-zinc-800/50 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 rounded-lg transition-all active:scale-95 group text-left"
+                    className="flex flex-col items-start p-3 bg-zinc-800/50 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 rounded-lg transition-all active:scale-95 group text-left cursor-grab active:cursor-grabbing"
                   >
                     <span className="text-[11px] font-black text-zinc-300 group-hover:text-indigo-400 uppercase tracking-tight transition-colors">
                       {def.label}
@@ -46,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onAddNode }) => {
 
       <div className="mt-auto pt-6 border-t border-zinc-800/50">
         <p className="text-[9px] text-zinc-600 italic leading-tight font-medium px-1">
-          Select a node to add it to the graph workspace.
+          Drag nodes to workspace or click to add.
         </p>
       </div>
     </aside>

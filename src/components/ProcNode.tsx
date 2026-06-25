@@ -4,7 +4,7 @@ import { PortColors, PortType } from "../core/types";
 import { NODE_REGISTRY } from "../core/registry";
 
 export const ProcNode = ({ id, data }: any) => {
-  const definition = NODE_REGISTRY[data.label.replace(' ', '_')];
+  const definition = NODE_REGISTRY[data.label.replace(/ /g, '_')];
   
   return (
     <div className={`bg-zinc-800 text-white border ${data.label === 'IMAGE MASK' ? 'border-emerald-500/50' : 'border-indigo-500/50'} rounded-lg shadow-xl w-48 font-sans relative`}>
