@@ -11,7 +11,7 @@ fn main() {
             engine::generate_test_points,
             engine::apply_physics,
             engine::get_mask_info,
-            engine::generate_convex_hull,
+            engine::generate_hull,
             engine::polygon_boolean
         ])
         .run(tauri::generate_context!())

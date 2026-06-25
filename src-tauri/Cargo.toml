@@ -21,6 +21,7 @@ rand_chacha = "0.3"
 rand_distr = "0.4"
 tauri-plugin-dialog = "2.0.0-rc"
 tauri-plugin-fs = "2.0.0-rc"
+spade = "2.15.1"
 
 [features]
 # По умолчанию Tauri не включает ничего лишнего

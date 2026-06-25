@@ -3,6 +3,7 @@ export enum PortType {
   Polygons = 'POLYGONS',
   Objects = 'OBJECTS',
   Mask = 'MASK',
+  Map = 'MAP',
   Scalar = 'SCALAR'
 }
 
@@ -11,6 +12,7 @@ export const PortColors: Record<PortType, string> = {
   [PortType.Polygons]: '#3b82f6', // Синий
   [PortType.Objects]: '#a855f7',  // Фиолетовый
   [PortType.Mask]: '#10b981',     // Зеленый
+  [PortType.Map]: '#ec4899',      // Розовый
   [PortType.Scalar]: '#94a3b8'    // Серый
 };
 
@@ -23,7 +25,7 @@ export interface NodeSocket {
 export interface NodeDefinition {
   type: string;
   label: string;
-  category: 'Generator' | 'Modifier' | 'Output' | 'Converter' | 'Masks';
+  category: 'Generator' | 'Modifier' | 'Output' | 'Converter' | 'Maps & Masks';
   description: string;
   inputs: NodeSocket[];
   outputs: NodeSocket[];

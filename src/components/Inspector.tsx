@@ -22,12 +22,22 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
       });
       if (selected && typeof selected === 'string') {
         const info: any = await invoke("get_mask_info", { path: selected });
-        onUpdateNodeData(id, { 
-            ...data, 
-            maskPath: selected,
-            maskWidth: info?.width || 0,
-            maskHeight: info?.height || 0
-        });
+
+        if (data.label === 'IMAGE MAP') {
+            onUpdateNodeData(id, {
+                ...data,
+                mapPath: selected,
+                mapWidth: info?.width || 0,
+                mapHeight: info?.height || 0
+            });
+        } else {
+            onUpdateNodeData(id, {
+                ...data,
+                maskPath: selected,
+                maskWidth: info?.width || 0,
+                maskHeight: info?.height || 0
+            });
+        }
       }
     } catch (err) {
       console.error("Dialog error:", err);
@@ -113,6 +123,20 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
             </div>
 
             <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-black text-zinc-500 uppercase">
+                <span>Gravity Reference</span>
+              </div>
+              <select
+                value={data.edgeReference || 'Circle'}
+                onChange={(e) => handleChange('edgeReference', e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-bold"
+              >
+                <option value="Circle">Spawn Circle</option>
+                <option value="Mask">Polygon Mask</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
               <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
                 <span>Clumping</span>
                 <span className="text-indigo-400 font-mono font-black">{(data.clumping || 0).toFixed(2)}</span>
@@ -179,6 +203,19 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
               />
             </div>
 
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
+                <span>Cutoff Threshold</span>
+                <span className="text-indigo-400 font-mono font-black">{((data.threshold ?? 0.1) * 100).toFixed(0)}%</span>
+              </div>
+              <input type="range" min="0" max="1" step="0.01"
+                value={data.threshold ?? 0.1}
+                onChange={(e) => handleChange('threshold', parseFloat(e.target.value))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+              <div className="text-[9px] text-zinc-600 leading-tight">Pixels darker than this will block spawning entirely.</div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3 pt-2">
               <div className="space-y-1">
                 <div className="text-[9px] font-black text-zinc-500 uppercase">Center X</div>
@@ -195,6 +232,120 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
                 />
               </div>
             </div>
+          </div>
+        )}
+
+        {/* MAP TO MASK */}
+        {data.label === 'MAP TO MASK' && (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
+                <span>Cutoff Threshold</span>
+                <span className="text-indigo-400 font-mono font-black">{((data.threshold ?? 0.1) * 100).toFixed(0)}%</span>
+              </div>
+              <input type="range" min="0" max="1" step="0.01"
+                value={data.threshold ?? 0.1}
+                onChange={(e) => handleChange('threshold', parseFloat(e.target.value))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+              <div className="text-[9px] text-zinc-600 leading-tight">Probabilities lower than this become solid walls.</div>
+            </div>
+          </div>
+        )}
+
+        {/* IMAGE MAP */}
+        {data.label === 'IMAGE MAP' && (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="text-[10px] font-black text-zinc-500 uppercase mb-2">Map Source</div>
+              <button onClick={handleSelectFile} className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-[10px] font-bold text-zinc-300 transition-colors uppercase">
+                {data.mapPath ? 'Change Image' : 'Select Image'}
+              </button>
+              {data.mapPath && (
+                <div className="mt-2 space-y-1">
+                    <div className="text-[8px] text-indigo-400 font-mono truncate uppercase">FILE: {data.mapPath.split('\\').pop()}</div>
+                    <div className="text-[8px] text-zinc-500 font-mono">SIZE: {data.mapWidth}x{data.mapHeight}px</div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
+                <span>Scale</span>
+                <span className="text-indigo-400 font-mono font-black">{(data.mapScale || 1.0).toFixed(2)}</span>
+              </div>
+              <input type="range" min="0.1" max="10" step="0.1"
+                value={data.mapScale || 1.0}
+                onChange={(e) => handleChange('mapScale', parseFloat(e.target.value))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <div className="space-y-1">
+                <div className="text-[9px] font-black text-zinc-500 uppercase">Center X</div>
+                <input type="number" value={data.centerX || 0}
+                  onChange={(e) => handleChange('centerX', parseFloat(e.target.value))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-[9px] font-black text-zinc-500 uppercase">Center Y</div>
+                <input type="number" value={data.centerY || 0}
+                  onChange={(e) => handleChange('centerY', parseFloat(e.target.value))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* POINTS TO POLYGON */}
+        {data.label === 'POINTS TO POLYGON' && (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-black text-zinc-500 uppercase">
+                <span>Algorithm</span>
+              </div>
+              <select
+                value={data.algorithm || 'Convex'}
+                onChange={(e) => handleChange('algorithm', e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-bold uppercase"
+              >
+                <option value="Convex">Convex Hull (Standard)</option>
+                <option value="Metaballs">Metaballs (Organic)</option>
+                <option value="AlphaShape">Alpha Shape (Concave)</option>
+              </select>
+            </div>
+
+            {(data.algorithm === 'Metaballs' || data.algorithm === 'AlphaShape') && (
+                <>
+                <div className="space-y-2">
+                <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
+                    <span>{data.algorithm === 'AlphaShape' ? 'Max Edge Length' : 'Drop Radius'}</span>
+                    <span className="text-indigo-400 font-mono font-black">{data.radius || 50}</span>
+                </div>
+                <input type="range" min="1" max={data.algorithm === 'AlphaShape' ? 1000 : 200}
+                    value={data.radius || 50}
+                    onChange={(e) => handleChange('radius', parseInt(e.target.value))}
+                    className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                />
+                </div>
+                {data.algorithm === 'Metaballs' && (
+                  <div className="space-y-2">
+                  <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
+                      <span>Grid Resolution</span>
+                      <span className="text-indigo-400 font-mono font-black">{data.resolution || 10}</span>
+                  </div>
+                  <input type="range" min="2" max="50"
+                      value={data.resolution || 10}
+                      onChange={(e) => handleChange('resolution', parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  />
+                  </div>
+                )}
+                </>
+            )}
           </div>
         )}
 

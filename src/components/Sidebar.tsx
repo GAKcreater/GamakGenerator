@@ -24,7 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onAddNode }) => {
         {categories.map((category) => (
           <div key={category} className="flex flex-col gap-3">
             <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest px-1 border-b border-zinc-800/50 pb-1">
-              {category.endsWith('s') ? category : `${category}s`}
+              {category.endsWith('s') || category.includes('&') ? category : `${category}s`}
             </div>
             <div className="flex flex-col gap-2">
               {Object.entries(NODE_REGISTRY)

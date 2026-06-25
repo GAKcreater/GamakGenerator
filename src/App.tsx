@@ -110,12 +110,27 @@ const FlowEditor = () => {
       const viewportNode = nodes.find(n => n.type === 'viewportNode');
       if (!viewportNode) return;
 
-      const processNode = async (nodeId: string): Promise<{entities: any[], masks: any[]}> => {
+      const processNode = async (nodeId: string): Promise<{entities: any[], masks: any[], maps: any[]}> => {
         const node = nodes.find(n => n.id === nodeId);
-        if (!node) return { entities: [], masks: [] };
+        if (!node) return { entities: [], masks: [], maps: [] };
 
         if (node.data.label === 'IMAGE MASK') {
-          return { entities: [], masks: [{ type: 'Image', data: { path: node.data.maskPath, scale: node.data.maskScale || 1.0, centerX: node.data.centerX || 0, centerY: node.data.centerY || 0 } }] };
+          return { entities: [], masks: [{ type: 'ThresholdedMap', data: { map: { type: 'Image', data: { path: node.data.maskPath, scale: node.data.maskScale || 1.0, centerX: node.data.centerX || 0, centerY: node.data.centerY || 0 } }, threshold: node.data.threshold ?? 0.1 } }], maps: [] };
+        }
+        if (node.data.label === 'IMAGE MAP') {
+          return { entities: [], masks: [], maps: [{ type: 'Image', data: { path: node.data.mapPath, scale: node.data.mapScale || 1.0, centerX: node.data.centerX || 0, centerY: node.data.centerY || 0 } }] };
+        }
+        if (node.data.label === 'MAP TO MASK') {
+          const incomingToMap = edges.filter(e => e.target === nodeId && e.targetHandle === 'in');
+          let maps: any[] = [];
+          for (const edge of incomingToMap) {
+            const res = await processNode(edge.source);
+            maps = [...maps, ...res.maps];
+          }
+          const masks = maps.map(m => {
+             return { type: 'ThresholdedMap', data: { map: m, threshold: node.data.threshold ?? 0.1 } };
+          });
+          return { entities: [], masks, maps: [] };
         }
         if (node.data.label === 'POINT SCATTER') {
           const incomingToMasks = edges.filter(e => e.target === nodeId && e.targetHandle === 'masks');
@@ -124,15 +139,23 @@ const FlowEditor = () => {
             const res = await processNode(edge.source);
             activeMasks = [...activeMasks, ...res.masks];
           }
+          const incomingToMaps = edges.filter(e => e.target === nodeId && e.targetHandle === 'maps');
+          let activeMaps: any[] = [];
+          for (const edge of incomingToMaps) {
+            const res = await processNode(edge.source);
+            activeMaps = [...activeMaps, ...res.maps];
+          }
           const pts = await invoke("generate_test_points", {
             count: node.data.count || 50, radius: node.data.radius || 200.0,
             centerX: node.data.centerX || 0, centerY: node.data.centerY || 0,
-            seed: parseInt(node.data.seed || 42), masks: activeMasks,
+            seed: parseInt(node.data.seed || 42),
+            masks: activeMasks, maps: activeMaps,
             distribution: node.data.distribution || 'Uniform',
             gravity: node.data.gravity || 0.0,
-            clumping: node.data.clumping || 0.0
+            clumping: node.data.clumping || 0.0,
+            edgeReference: node.data.edgeReference || 'Circle'
           });
-          return { entities: (pts as any[]).map(p => ({ type: 'Point', data: p, color: node.data.color })), masks: [] };
+          return { entities: (pts as any[]).map(p => ({ type: 'Point', data: p, color: node.data.color })), masks: [], maps: [] };
         }
         if (node.data.label === 'SAT PHYSICS') {
           const incoming = edges.filter(e => e.target === nodeId && e.targetHandle === 'in');
@@ -143,10 +166,10 @@ const FlowEditor = () => {
           }
           if (allPoints.length > 0) {
             const result = await invoke("apply_physics", { points: allPoints, iterations: node.data.iterations || 10 });
-            return { entities: (result as any[]).map(p => ({ type: 'Point', data: p, color: node.data.color })), masks: [] };
+            return { entities: (result as any[]).map(p => ({ type: 'Point', data: p, color: node.data.color })), masks: [], maps: [] };
           }
         }
-        if (node.data.label === 'CONVEX HULL') {
+        if (node.data.label === 'POINTS TO POLYGON') {
           const incoming = edges.filter(e => e.target === nodeId && e.targetHandle === 'in');
           let allPoints: any[] = [];
           for (const edge of incoming) {
@@ -154,9 +177,26 @@ const FlowEditor = () => {
             allPoints = [...allPoints, ...res.entities.filter(e => e.type === 'Point').map(e => e.data)];
           }
           if (allPoints.length > 0) {
-            const result = await invoke("generate_convex_hull", { points: allPoints });
-            return { entities: [{ type: 'Polygon', data: result, color: node.data.color }], masks: [] };
+            const result: any[] = await invoke("generate_hull", {
+              points: allPoints,
+              algorithm: node.data.algorithm || 'Convex',
+              radius: node.data.radius || 50.0,
+              resolution: node.data.resolution || 10.0
+            });
+            return { entities: result.map(p => ({ type: 'Polygon', data: p, color: node.data.color })), masks: [], maps: [] };
           }
+        }
+        if (node.data.label === 'POLYGON TO MASK') {
+          const incoming = edges.filter(e => e.target === nodeId && e.targetHandle === 'in');
+          let masks: any[] = [];
+          for (const edge of incoming) {
+            const res = await processNode(edge.source);
+            const polygons = res.entities.filter(e => e.type === 'Polygon');
+            for (const p of polygons) {
+              masks.push({ type: 'Polygon', data: p.data });
+            }
+          }
+          return { entities: [], masks, maps: [] };
         }
         if (node.data.label === 'POLYGON SUBTRACT') {
           const inBase = edges.filter(e => e.target === nodeId && e.targetHandle === 'base');
@@ -181,11 +221,11 @@ const FlowEditor = () => {
               poly2,
               operation: 'subtract'
             });
-            return { entities: (result as any[]).map(p => ({ type: 'Polygon', data: p, color: node.data.color })), masks: [] };
+            return { entities: (result as any[]).map(p => ({ type: 'Polygon', data: p, color: node.data.color })), masks: [], maps: [] };
           } else if (poly1) {
-            return { entities: [{ type: 'Polygon', data: poly1, color: node.data.color }], masks: [] };
+            return { entities: [{ type: 'Polygon', data: poly1, color: node.data.color }], masks: [], maps: [] };
           } else if (poly2) {
-            return { entities: [{ type: 'Polygon', data: poly2, color: node.data.color }], masks: [] };
+            return { entities: [{ type: 'Polygon', data: poly2, color: node.data.color }], masks: [], maps: [] };
           }
         }
         if (node.type === 'viewportNode') {
@@ -195,9 +235,9 @@ const FlowEditor = () => {
             const res = await processNode(edge.source);
             finalEntities = [...finalEntities, ...res.entities];
           }
-          return { entities: finalEntities, masks: [] };
+          return { entities: finalEntities, masks: [], maps: [] };
         }
-        return { entities: [], masks: [] };
+        return { entities: [], masks: [], maps: [] };
       };
       const finalResult = await processNode(viewportNode.id);
       setGeneratedEntities(finalResult.entities);
@@ -229,7 +269,7 @@ const FlowEditor = () => {
             {selectedNode && <Inspector selectedNode={selectedNode} onUpdateNodeData={(id, data) => setNodes(nds => nds.map(n => n.id === id ? { ...n, data } : n))} />}
           </div>
           {selectedNode && <div onMouseDown={e => { e.preventDefault(); setResizingPart('inspector'); }} className={`w-1 group relative cursor-col-resize hover:bg-indigo-500/50 transition-colors z-40 ${resizingPart === 'inspector' ? 'bg-indigo-500' : 'bg-zinc-800'}`} />}
-          <div className="flex-1 min-w-0 flex flex-col h-full bg-zinc-950"><Viewport entities={generatedEntities} selectedNode={selectedNode} /></div>
+          <div className="flex-1 min-w-0 flex flex-col h-full bg-zinc-950"><Viewport entities={generatedEntities} selectedNode={selectedNode} nodes={nodes} /></div>
         </div>
       </div>
     </div>

@@ -39,6 +39,16 @@ pub enum ProcEntity {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", content = "data")]
 pub enum MaskSource {
+    ThresholdedMap {
+        map: MapSource,
+        threshold: f32,
+    },
+    Polygon(ProcPolygon),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type", content = "data")]
+pub enum MapSource {
     Image {
         path: String,
         scale: f32,
@@ -46,14 +56,26 @@ pub enum MaskSource {
         center_x: f32,
         #[serde(rename = "centerY")]
         center_y: f32
-    },
-    Polygon(ProcPolygon),
+    }
 }
 
 fn to_geo_poly(proc_poly: &ProcPolygon) -> Polygon<f32> {
-    let ext: Vec<(f32, f32)> = proc_poly.exterior.iter().map(|p| (p.x, p.y)).collect();
+    let mut ext: Vec<(f32, f32)> = proc_poly.exterior.iter().map(|p| (p.x, p.y)).collect();
+    if let (Some(first), Some(last)) = (ext.first(), ext.last()) {
+        if first.0 != last.0 || first.1 != last.1 {
+            ext.push(*first);
+        }
+    }
     let holes: Vec<LineString<f32>> = proc_poly.holes.iter()
-        .map(|h| LineString::from(h.iter().map(|p| (p.x, p.y)).collect::<Vec<(f32, f32)>>()))
+        .map(|h| {
+            let mut h_vec: Vec<(f32, f32)> = h.iter().map(|p| (p.x, p.y)).collect();
+            if let (Some(first), Some(last)) = (h_vec.first(), h_vec.last()) {
+                if first.0 != last.0 || first.1 != last.1 {
+                    h_vec.push(*first);
+                }
+            }
+            LineString::from(h_vec)
+        })
         .collect();
     Polygon::new(LineString::from(ext), holes)
 }
@@ -72,24 +94,38 @@ pub fn get_mask_info(path: String) -> Option<HashMap<String, u32>> {
 
 #[tauri::command]
 pub fn generate_test_points(
-    count: usize, 
-    radius: f32, 
+    count: usize,
+    radius: f32,
     centerX: f32,
     centerY: f32,
     seed: u64,
     masks: Vec<MaskSource>,
+    maps: Vec<MapSource>,
     distribution: String,
     gravity: f32,
-    clumping: f32
+    clumping: f32,
+    edgeReference: String
 ) -> Vec<ProcPoint> {
     use image::GenericImageView;
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    
+
     let mut images = HashMap::new();
-    for mask in &masks {
-        if let MaskSource::Image { path, .. } = mask {
-            if let Ok(img) = image::open(path) { images.insert(path.clone(), img); }
+
+    let mut load_map_image = |map_source: &MapSource| {
+        if let MapSource::Image { path, .. } = map_source {
+            if !images.contains_key(path) {
+                if let Ok(img) = image::open(path) { images.insert(path.clone(), img); }
+            }
         }
+    };
+
+    for mask in &masks {
+        if let MaskSource::ThresholdedMap { map, .. } = mask {
+            load_map_image(map);
+        }
+    }
+    for map in &maps {
+        load_map_image(map);
     }
 
     let mut points = Vec::new();
@@ -134,18 +170,44 @@ pub fn generate_test_points(
         let x = rx + centerX;
         let y = ry + centerY;
 
+        let mut prob = 1.0;
+        for map in &maps {
+            if let MapSource::Image { path, scale, center_x: mcx, center_y: mcy } = map {
+                if let Some(img) = images.get(path) {
+                    let (w, h) = img.dimensions();
+                    let mx = (((x - mcx) / scale) + w as f32 / 2.0) as i32;
+                    let my = (((y - mcy) / scale) + h as f32 / 2.0) as i32;
+                    if mx >= 0 && mx < (w as i32) && my >= 0 && my < (h as i32) {
+                        let pixel = img.get_pixel(mx as u32, my as u32);
+                        prob *= pixel[0] as f32 / 255.0;
+                    } else {
+                        prob = 0.0;
+                    }
+                }
+            }
+        }
+
+        if rng.gen::<f32>() > prob {
+            continue;
+        }
+
         let mut allowed = true;
         for mask in &masks {
             match mask {
-                MaskSource::Image { path, scale, center_x: mcx, center_y: mcy } => {
-                    if let Some(img) = images.get(path) {
-                        let (w, h) = img.dimensions();
-                        let mx = (((x - mcx) / scale) + w as f32 / 2.0) as i32;
-                        let my = (((y - mcy) / scale) + h as f32 / 2.0) as i32;
-                        if mx >= 0 && mx < (w as i32) && my >= 0 && my < (h as i32) {
-                            let pixel = img.get_pixel(mx as u32, my as u32);
-                            if rng.gen::<f32>() > (pixel[0] as f32 / 255.0) { allowed = false; break; }
-                        } else { allowed = false; break; }
+                MaskSource::ThresholdedMap { map, threshold } => {
+                    if let MapSource::Image { path, scale, center_x: mcx, center_y: mcy } = map {
+                        if let Some(img) = images.get(path) {
+                            let (w, h) = img.dimensions();
+                            let mx = (((x - mcx) / scale) + w as f32 / 2.0) as i32;
+                            let my = (((y - mcy) / scale) + h as f32 / 2.0) as i32;
+                            if mx >= 0 && mx < (w as i32) && my >= 0 && my < (h as i32) {
+                                let pixel = img.get_pixel(mx as u32, my as u32);
+                                let val = pixel[0] as f32 / 255.0;
+                                if val <= *threshold {
+                                    allowed = false; break;
+                                }
+                            } else { allowed = false; break; }
+                        }
                     }
                 },
                 MaskSource::Polygon(poly) => {
@@ -205,25 +267,242 @@ pub fn apply_physics(mut points: Vec<ProcPoint>, iterations: usize) -> Vec<ProcP
 }
 
 #[tauri::command]
-pub fn generate_convex_hull(points: Vec<ProcPoint>) -> ProcPolygon {
-    if points.len() <= 2 {
-        return ProcPolygon { exterior: points.iter().map(|p| p.pos).collect(), holes: vec![], attributes: HashMap::new(), tags: vec![] };
+pub fn generate_hull(
+    points: Vec<ProcPoint>,
+    algorithm: String,
+    radius: f32,
+    resolution: f32
+) -> Vec<ProcPolygon> {
+    if points.is_empty() { return vec![]; }
+
+    if algorithm == "Metaballs" {
+        println!("Metaballs started with {} points, radius: {}, res: {}", points.len(), radius, resolution);
+        let mut min_x = f32::MAX; let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN; let mut max_y = f32::MIN;
+        for p in &points {
+            if p.pos.x < min_x { min_x = p.pos.x; }
+            if p.pos.y < min_y { min_y = p.pos.y; }
+            if p.pos.x > max_x { max_x = p.pos.x; }
+            if p.pos.y > max_y { max_y = p.pos.y; }
+        }
+        let padding = radius * 2.5;
+        min_x -= padding; min_y -= padding;
+        max_x += padding; max_y += padding;
+
+        let cols = ((max_x - min_x) / resolution).ceil() as usize + 2;
+        let rows = ((max_y - min_y) / resolution).ceil() as usize + 2;
+        println!("Grid size: {}x{}", cols, rows);
+
+        let mut grid = vec![vec![0.0_f32; cols]; rows];
+        let r2 = radius * radius;
+        for y in 0..rows {
+            let py = min_y + (y as f32) * resolution;
+            for x in 0..cols {
+                let px = min_x + (x as f32) * resolution;
+                let mut sum = 0.0;
+                for pt in &points {
+                    let d2 = (px - pt.pos.x).powi(2) + (py - pt.pos.y).powi(2);
+                    sum += r2 / (d2 + 0.0001);
+                }
+                grid[y][x] = sum;
+            }
+        }
+
+        let threshold = 1.0;
+        let mut segments: Vec<(Point2<f32>, Point2<f32>)> = Vec::new();
+
+        for y in 0..rows-1 {
+            for x in 0..cols-1 {
+                let v00 = grid[y][x];
+                let v10 = grid[y][x+1];
+                let v11 = grid[y+1][x+1];
+                let v01 = grid[y+1][x];
+
+                let p00 = Point2::new(min_x + (x as f32)*resolution, min_y + (y as f32)*resolution);
+                let p10 = Point2::new(min_x + ((x+1) as f32)*resolution, min_y + (y as f32)*resolution);
+                let p11 = Point2::new(min_x + ((x+1) as f32)*resolution, min_y + ((y+1) as f32)*resolution);
+                let p01 = Point2::new(min_x + (x as f32)*resolution, min_y + ((y+1) as f32)*resolution);
+
+                let mut idx = 0;
+                if v00 >= threshold { idx |= 1; }
+                if v10 >= threshold { idx |= 2; }
+                if v11 >= threshold { idx |= 4; }
+                if v01 >= threshold { idx |= 8; }
+
+                let interp = |v1: f32, v2: f32, p1: Point2<f32>, p2: Point2<f32>| -> Point2<f32> {
+                    if (v2 - v1).abs() < 0.0001 { return p1; }
+                    let t = (threshold - v1) / (v2 - v1);
+                    Point2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y))
+                };
+
+                let top = || interp(v00, v10, p00, p10);
+                let right = || interp(v10, v11, p10, p11);
+                let bottom = || interp(v01, v11, p01, p11);
+                let left = || interp(v00, v01, p00, p01);
+
+                match idx {
+                    1 | 14 => segments.push((left(), top())),
+                    2 | 13 => segments.push((top(), right())),
+                    4 | 11 => segments.push((right(), bottom())),
+                    8 | 7  => segments.push((bottom(), left())),
+                    3 | 12 => segments.push((left(), right())),
+                    6 | 9  => segments.push((top(), bottom())),
+                    5 => { segments.push((left(), top())); segments.push((right(), bottom())); },
+                    10 => { segments.push((top(), right())); segments.push((bottom(), left())); },
+                    _ => {}
+                }
+            }
+        }
+
+        let epsilon = resolution * 0.01;
+        let mut rings: Vec<Vec<Point2<f32>>> = vec![];
+
+        while !segments.is_empty() {
+            let mut ring = vec![segments[0].0, segments[0].1];
+            segments.remove(0);
+
+            loop {
+                let last = *ring.last().unwrap();
+                let mut found = false;
+
+                for i in 0..segments.len() {
+                    if nalgebra::distance(&segments[i].0, &last) < epsilon {
+                        ring.push(segments[i].1);
+                        segments.remove(i);
+                        found = true; break;
+                    } else if nalgebra::distance(&segments[i].1, &last) < epsilon {
+                        ring.push(segments[i].0);
+                        segments.remove(i);
+                        found = true; break;
+                    }
+                }
+                if !found { break; }
+            }
+            if ring.len() > 2 {
+                rings.push(ring);
+            }
+        }
+
+        println!("Rings generated: {}", rings.len());
+        rings.into_iter().map(|ring| ProcPolygon {
+            exterior: ring,
+            holes: vec![],
+            attributes: HashMap::new(),
+            tags: vec![]
+        }).collect()
+
+    } else if algorithm == "AlphaShape" {
+        use spade::{DelaunayTriangulation, Triangulation, Point2 as SpadePoint2};
+        let mut tr: DelaunayTriangulation<SpadePoint2<f32>> = DelaunayTriangulation::new();
+        let mut pt_map = HashMap::new();
+
+        for p in &points {
+            if let Ok(handle) = tr.insert(SpadePoint2::new(p.pos.x, p.pos.y)) {
+                pt_map.insert(handle.index(), p.pos);
+            }
+        }
+
+        let mut edge_counts = HashMap::new();
+
+        for face in tr.inner_faces() {
+            let [p1, p2, p3] = face.positions();
+            let a = ((p1.x - p2.x).powi(2) + (p1.y - p2.y).powi(2)).sqrt();
+            let b = ((p2.x - p3.x).powi(2) + (p2.y - p3.y).powi(2)).sqrt();
+            let c = ((p3.x - p1.x).powi(2) + (p3.y - p1.y).powi(2)).sqrt();
+
+            let s = (a + b + c) / 2.0;
+            let area = (s * (s - a) * (s - b) * (s - c)).sqrt();
+            let r_circ = if area > 0.0001 { (a * b * c) / (4.0 * area) } else { f32::MAX };
+
+            // We use radius parameter from UI as the alpha value (Max circumradius allowed)
+            if r_circ <= radius {
+                let v = face.vertices();
+                let i1 = v[0].index();
+                let i2 = v[1].index();
+                let i3 = v[2].index();
+
+                let mut add_edge = |mut i, mut j| {
+                    if i > j { std::mem::swap(&mut i, &mut j); }
+                    *edge_counts.entry((i, j)).or_insert(0) += 1;
+                };
+
+                add_edge(i1, i2);
+                add_edge(i2, i3);
+                add_edge(i3, i1);
+            }
+        }
+
+        let mut adj: HashMap<usize, Vec<usize>> = HashMap::new();
+        for ((u, v), count) in edge_counts {
+            if count == 1 { // Boundary edges belong to exactly one valid triangle
+                adj.entry(u).or_default().push(v);
+                adj.entry(v).or_default().push(u);
+            }
+        }
+
+        let mut rings: Vec<Vec<Point2<f32>>> = vec![];
+        let mut visited = std::collections::HashSet::new();
+
+        let keys: Vec<usize> = adj.keys().cloned().collect();
+        for &start in &keys {
+            if visited.contains(&start) { continue; }
+            let mut ring = vec![];
+            let mut curr = start;
+            let mut prev = usize::MAX;
+
+            loop {
+                visited.insert(curr);
+                if let Some(pos) = pt_map.get(&curr) {
+                    ring.push(Point2::new(pos.x, pos.y));
+                }
+
+                let neighbors = adj.get(&curr).unwrap();
+                let mut next = usize::MAX;
+                for &n in neighbors {
+                    if n != prev {
+                        next = n;
+                        break;
+                    }
+                }
+
+                if next == usize::MAX || next == start {
+                    break;
+                }
+                prev = curr;
+                curr = next;
+            }
+            if ring.len() >= 3 {
+                rings.push(ring);
+            }
+        }
+
+        rings.into_iter().map(|ring| ProcPolygon {
+            exterior: ring,
+            holes: vec![],
+            attributes: HashMap::new(),
+            tags: vec![]
+        }).collect()
+    } else {
+        // Convex hull
+        if points.len() <= 2 {
+            return vec![ProcPolygon { exterior: points.iter().map(|p| p.pos).collect(), holes: vec![], attributes: HashMap::new(), tags: vec![] }];
+        }
+        let mut pts: Vec<Point2<f32>> = points.iter().map(|p| p.pos).collect();
+        pts.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap().then(a.y.partial_cmp(&b.y).unwrap()));
+        let mut lower = Vec::new();
+        fn cross(o: Point2<f32>, a: Point2<f32>, b: Point2<f32>) -> f32 { (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x) }
+        for p in &pts {
+            while lower.len() >= 2 && cross(lower[lower.len() - 2], lower[lower.len() - 1], *p) <= 0.0 { lower.pop(); }
+            lower.push(*p);
+        }
+        let mut upper = Vec::new();
+        for p in pts.iter().rev() {
+            while upper.len() >= 2 && cross(upper[upper.len() - 2], upper[upper.len() - 1], *p) <= 0.0 { upper.pop(); }
+            upper.push(*p);
+        }
+        lower.pop(); upper.pop(); lower.extend(upper);
+        vec![ProcPolygon { exterior: lower, holes: vec![], attributes: HashMap::new(), tags: vec![] }]
     }
-    let mut pts: Vec<Point2<f32>> = points.iter().map(|p| p.pos).collect();
-    pts.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap().then(a.y.partial_cmp(&b.y).unwrap()));
-    let mut lower = Vec::new();
-    fn cross(o: Point2<f32>, a: Point2<f32>, b: Point2<f32>) -> f32 { (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x) }
-    for p in &pts {
-        while lower.len() >= 2 && cross(lower[lower.len() - 2], lower[lower.len() - 1], *p) <= 0.0 { lower.pop(); }
-        lower.push(*p);
-    }
-    let mut upper = Vec::new();
-    for p in pts.iter().rev() {
-        while upper.len() >= 2 && cross(upper[upper.len() - 2], upper[upper.len() - 1], *p) <= 0.0 { upper.pop(); }
-        upper.push(*p);
-    }
-    lower.pop(); upper.pop(); lower.extend(upper);
-    ProcPolygon { exterior: lower, holes: vec![], attributes: HashMap::new(), tags: vec![] }
 }
 
 #[tauri::command]
