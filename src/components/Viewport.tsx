@@ -68,30 +68,45 @@ export const Viewport: React.FC<ViewportProps> = ({ entities, selectedNode }) =>
         if (entities && entities.length > 0) {
             entities.forEach(ent => {
                 if (ent.type === 'Point') {
-                    ctx.fillStyle = '#fbbf24';
+                    ctx.fillStyle = ent.color || '#fbbf24';
                     ctx.beginPath();
                     ctx.arc(ent.data.pos[0], ent.data.pos[1], 3/zoom, 0, Math.PI*2);
                     ctx.fill();
                 }
                 if (ent.type === 'Polygon' && ent.data.exterior) {
-                    ctx.strokeStyle = '#3b82f6';
-                    ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+                    ctx.strokeStyle = ent.color || '#3b82f6';
+                    ctx.fillStyle = ent.color || '#3b82f6';
+                    ctx.globalAlpha = 0.2;
                     ctx.beginPath();
                     ctx.moveTo(ent.data.exterior[0][0], ent.data.exterior[0][1]);
                     ent.data.exterior.forEach((p: any) => ctx.lineTo(p[0], p[1]));
                     ctx.closePath();
-                    ctx.fill(); ctx.stroke();
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                    ctx.stroke();
                 }
             });
         }
 
         // Хелперы
         if (selectedNode?.data?.label === 'POINT SCATTER') {
-            const { center_x: cx = 0, center_y: cy = 0, radius = 200 } = selectedNode.data;
+            const { centerX: cx = 0, centerY: cy = 0, radius = 200 } = selectedNode.data;
             ctx.strokeStyle = '#6366f1';
             ctx.setLineDash([5/zoom, 5/zoom]);
             ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI*2); ctx.stroke();
             ctx.setLineDash([]);
+        }
+
+        if (selectedNode?.data?.label === 'IMAGE MASK') {
+            const { centerX = 0, centerY = 0, maskScale = 1.0, maskWidth = 0, maskHeight = 0 } = selectedNode.data;
+            if (maskWidth > 0 && maskHeight > 0) {
+                const w = maskWidth * maskScale;
+                const h = maskHeight * maskScale;
+                ctx.strokeStyle = '#10b981'; // Green to indicate Mask
+                ctx.setLineDash([5/zoom, 5/zoom]);
+                ctx.strokeRect(centerX - w/2, centerY - h/2, w, h);
+                ctx.setLineDash([]);
+            }
         }
 
         ctx.restore();

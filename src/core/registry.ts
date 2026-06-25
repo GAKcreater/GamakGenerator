@@ -20,13 +20,14 @@ export const NODE_REGISTRY: Record<string, NodeDefinition> = {
       seed: 42,
       distribution: 'Uniform',
       gravity: 0.0,
-      clumping: 0.0
+      clumping: 0.0,
+      color: '#fbbf24'
     }
   },
   'IMAGE_MASK': {
     type: 'procNode',
     label: 'IMAGE MASK',
-    category: 'Generator',
+    category: 'Masks',
     description: 'Loads grayscale image as mask',
     inputs: [],
     outputs: [
@@ -65,7 +66,25 @@ export const NODE_REGISTRY: Record<string, NodeDefinition> = {
     outputs: [
       { name: 'out', type: PortType.Polygons, description: 'Generated hull' }
     ],
-    params: {}
+    params: {
+      color: '#3b82f6'
+    }
+  },
+  'POLYGON_SUBTRACT': {
+    type: 'procNode',
+    label: 'POLYGON SUBTRACT',
+    category: 'Modifier',
+    description: 'Subtracts one polygon from another',
+    inputs: [
+      { name: 'base', type: PortType.Polygons, description: 'Base polygon (from which to subtract)' },
+      { name: 'subtract', type: PortType.Polygons, description: 'Polygon to subtract' }
+    ],
+    outputs: [
+      { name: 'out', type: PortType.Polygons, description: 'Resulting polygon(s)' }
+    ],
+    params: {
+      color: '#ef4444'
+    }
   },
   'VIEWPORT': {
     type: 'viewportNode',

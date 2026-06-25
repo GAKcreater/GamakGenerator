@@ -166,6 +166,35 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
                 </div>
               )}
             </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase">
+                <span>Scale</span>
+                <span className="text-indigo-400 font-mono font-black">{(data.maskScale || 1.0).toFixed(2)}</span>
+              </div>
+              <input type="range" min="0.1" max="10" step="0.1"
+                value={data.maskScale || 1.0}
+                onChange={(e) => handleChange('maskScale', parseFloat(e.target.value))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <div className="space-y-1">
+                <div className="text-[9px] font-black text-zinc-500 uppercase">Center X</div>
+                <input type="number" value={data.centerX || 0}
+                  onChange={(e) => handleChange('centerX', parseFloat(e.target.value))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-[9px] font-black text-zinc-500 uppercase">Center Y</div>
+                <input type="number" value={data.centerY || 0}
+                  onChange={(e) => handleChange('centerY', parseFloat(e.target.value))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+            </div>
           </div>
         )}
 
@@ -177,11 +206,30 @@ export const Inspector: React.FC<InspectorProps> = ({ selectedNode, onUpdateNode
                 <span>Separation Iterations</span>
                 <span className="text-indigo-400 font-mono font-black">{data.iterations || 10}</span>
               </div>
-              <input type="range" min="0" max="100" 
+              <input type="range" min="0" max="100"
                 value={valToPos(data.iterations || 10, 1, 200)}
                 onChange={(e) => handleChange('iterations', posToVal(parseInt(e.target.value), 1, 200))}
                 className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
+            </div>
+          </div>
+        )}
+
+        {/* COLOR PICKER (FOR ALL GENERATED ENTITIES) */}
+        {data.color !== undefined && (
+          <div className="space-y-4 pt-4 border-t border-zinc-800">
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-black text-zinc-500 uppercase">
+                <span>Entity Color</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="color"
+                  value={data.color}
+                  onChange={(e) => handleChange('color', e.target.value)}
+                  className="w-8 h-8 rounded cursor-pointer border-0 p-0 bg-transparent"
+                />
+                <span className="text-[10px] font-mono text-zinc-400 uppercase">{data.color}</span>
+              </div>
             </div>
           </div>
         )}

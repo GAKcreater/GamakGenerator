@@ -23,7 +23,7 @@ export interface NodeSocket {
 export interface NodeDefinition {
   type: string;
   label: string;
-  category: 'Generator' | 'Modifier' | 'Output' | 'Converter';
+  category: 'Generator' | 'Modifier' | 'Output' | 'Converter' | 'Masks';
   description: string;
   inputs: NodeSocket[];
   outputs: NodeSocket[];

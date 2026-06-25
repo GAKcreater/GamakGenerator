@@ -38,9 +38,15 @@ pub enum ProcEntity {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", content = "data")]
-#[serde(rename_all = "camelCase")]
 pub enum MaskSource {
-    Image { path: String, scale: f32, centerX: f32, centerY: f32 },
+    Image {
+        path: String,
+        scale: f32,
+        #[serde(rename = "centerX")]
+        center_x: f32,
+        #[serde(rename = "centerY")]
+        center_y: f32
+    },
     Polygon(ProcPolygon),
 }
 
@@ -131,7 +137,7 @@ pub fn generate_test_points(
         let mut allowed = true;
         for mask in &masks {
             match mask {
-                MaskSource::Image { path, scale, centerX: mcx, centerY: mcy } => {
+                MaskSource::Image { path, scale, center_x: mcx, center_y: mcy } => {
                     if let Some(img) = images.get(path) {
                         let (w, h) = img.dimensions();
                         let mx = (((x - mcx) / scale) + w as f32 / 2.0) as i32;
@@ -218,4 +224,33 @@ pub fn generate_convex_hull(points: Vec<ProcPoint>) -> ProcPolygon {
     }
     lower.pop(); upper.pop(); lower.extend(upper);
     ProcPolygon { exterior: lower, holes: vec![], attributes: HashMap::new(), tags: vec![] }
+}
+
+#[tauri::command]
+pub fn polygon_boolean(poly1: ProcPolygon, poly2: ProcPolygon, operation: String) -> Vec<ProcPolygon> {
+    use geo::BooleanOps;
+
+    let g1 = to_geo_poly(&poly1);
+    let g2 = to_geo_poly(&poly2);
+
+    let result_multipoly = match operation.as_str() {
+        "union" => g1.union(&g2),
+        "difference" | "subtract" => g1.difference(&g2),
+        "intersection" => g1.intersection(&g2),
+        "xor" => g1.xor(&g2),
+        _ => return vec![]
+    };
+
+    use geo::coords_iter::CoordsIter;
+
+    result_multipoly.into_iter().map(|poly| {
+        let exterior: Vec<Point2<f32>> = poly.exterior().coords_iter().map(|c| Point2::new(c.x as f32, c.y as f32)).collect();
+        let holes: Vec<Vec<Point2<f32>>> = poly.interiors().iter().map(|h| h.coords_iter().map(|c| Point2::new(c.x as f32, c.y as f32)).collect()).collect();
+        ProcPolygon {
+            exterior,
+            holes,
+            attributes: HashMap::new(),
+            tags: vec![]
+        }
+    }).collect()
 }

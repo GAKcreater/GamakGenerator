@@ -124,15 +124,15 @@ const FlowEditor = () => {
             const res = await processNode(edge.source);
             activeMasks = [...activeMasks, ...res.masks];
           }
-          const pts = await invoke("generate_test_points", { 
-            count: node.data.count || 50, radius: node.data.radius || 200.0, 
-            centerX: node.data.centerX || 0, centerY: node.data.centerY || 0, 
+          const pts = await invoke("generate_test_points", {
+            count: node.data.count || 50, radius: node.data.radius || 200.0,
+            centerX: node.data.centerX || 0, centerY: node.data.centerY || 0,
             seed: parseInt(node.data.seed || 42), masks: activeMasks,
-            distribution: node.data.distribution || 'Uniform', 
+            distribution: node.data.distribution || 'Uniform',
             gravity: node.data.gravity || 0.0,
             clumping: node.data.clumping || 0.0
           });
-          return { entities: (pts as any[]).map(p => ({ type: 'Point', data: p })), masks: [] };
+          return { entities: (pts as any[]).map(p => ({ type: 'Point', data: p, color: node.data.color })), masks: [] };
         }
         if (node.data.label === 'SAT PHYSICS') {
           const incoming = edges.filter(e => e.target === nodeId && e.targetHandle === 'in');
@@ -143,7 +143,7 @@ const FlowEditor = () => {
           }
           if (allPoints.length > 0) {
             const result = await invoke("apply_physics", { points: allPoints, iterations: node.data.iterations || 10 });
-            return { entities: (result as any[]).map(p => ({ type: 'Point', data: p })), masks: [] };
+            return { entities: (result as any[]).map(p => ({ type: 'Point', data: p, color: node.data.color })), masks: [] };
           }
         }
         if (node.data.label === 'CONVEX HULL') {
@@ -155,7 +155,37 @@ const FlowEditor = () => {
           }
           if (allPoints.length > 0) {
             const result = await invoke("generate_convex_hull", { points: allPoints });
-            return { entities: [{ type: 'Polygon', data: result }], masks: [] };
+            return { entities: [{ type: 'Polygon', data: result, color: node.data.color }], masks: [] };
+          }
+        }
+        if (node.data.label === 'POLYGON SUBTRACT') {
+          const inBase = edges.filter(e => e.target === nodeId && e.targetHandle === 'base');
+          const inSub = edges.filter(e => e.target === nodeId && e.targetHandle === 'subtract');
+          let poly1: any = null;
+          let poly2: any = null;
+
+          if (inBase.length > 0) {
+            const res = await processNode(inBase[0].source);
+            const p = res.entities.find(e => e.type === 'Polygon');
+            if (p) poly1 = p.data;
+          }
+          if (inSub.length > 0) {
+            const res = await processNode(inSub[0].source);
+            const p = res.entities.find(e => e.type === 'Polygon');
+            if (p) poly2 = p.data;
+          }
+
+          if (poly1 && poly2) {
+            const result = await invoke("polygon_boolean", {
+              poly1,
+              poly2,
+              operation: 'subtract'
+            });
+            return { entities: (result as any[]).map(p => ({ type: 'Polygon', data: p, color: node.data.color })), masks: [] };
+          } else if (poly1) {
+            return { entities: [{ type: 'Polygon', data: poly1, color: node.data.color }], masks: [] };
+          } else if (poly2) {
+            return { entities: [{ type: 'Polygon', data: poly2, color: node.data.color }], masks: [] };
           }
         }
         if (node.type === 'viewportNode') {
