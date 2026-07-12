@@ -5,6 +5,98 @@ use geo::{Polygon, Contains, BoundingRect, LineString};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
+#[derive(Debug, Clone)]
+pub struct RasterMask {
+    pub data: Vec<bool>,
+    pub width: usize,
+    pub height: usize,
+    pub min_x: f32,
+    pub min_y: f32,
+    pub resolution: f32,
+}
+
+impl RasterMask {
+    pub fn is_inside(&self, x: f32, y: f32) -> bool {
+        if x < self.min_x || y < self.min_y { return false; }
+        let ix = ((x - self.min_x) / self.resolution) as usize;
+        let iy = ((y - self.min_y) / self.resolution) as usize;
+        if ix >= self.width || iy >= self.height { return false; }
+        self.data[iy * self.width + ix]
+    }
+}
+
+fn rasterize_polygon(poly: &ProcPolygon, resolution: f32) -> Option<RasterMask> {
+    let mut min_x = f32::MAX; let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN; let mut max_y = f32::MIN;
+
+    let all_rings = std::iter::once(&poly.exterior).chain(poly.holes.iter());
+    for ring in all_rings.clone() {
+        for p in ring {
+            if p.x < min_x { min_x = p.x; }
+            if p.y < min_y { min_y = p.y; }
+            if p.x > max_x { max_x = p.x; }
+            if p.y > max_y { max_y = p.y; }
+        }
+    }
+
+    if min_x == f32::MAX { return None; }
+
+    let width = ((max_x - min_x) / resolution).ceil() as usize + 1;
+    let height = ((max_y - min_y) / resolution).ceil() as usize + 1;
+    let mut data = vec![false; width * height];
+
+    for iy in 0..height {
+        let y = min_y + (iy as f32) * resolution;
+        let mut intersections = Vec::new();
+
+        for ring in all_rings.clone() {
+            let len = ring.len();
+            for i in 0..len {
+                let p1 = ring[i];
+                let p2 = ring[(i + 1) % len];
+
+                // Check if scanline y intersects the edge (p1, p2)
+                let (up, down) = if p1.y < p2.y { (p1, p2) } else { (p2, p1) };
+
+                // Strict inequality on one side prevents double-counting vertices
+                if y >= up.y && y < down.y {
+                    let intersect_x = up.x + (y - up.y) * (down.x - up.x) / (down.y - up.y);
+                    intersections.push(intersect_x);
+                }
+            }
+        }
+
+        intersections.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let mut chunks = intersections.chunks(2);
+        while let Some(chunk) = chunks.next() {
+            if chunk.len() == 2 {
+                let start_x = chunk[0];
+                let end_x = chunk[1];
+                let start_ix = ((start_x - min_x) / resolution).ceil() as i32;
+                let end_ix = ((end_x - min_x) / resolution).floor() as i32;
+
+                let start_ix = start_ix.max(0) as usize;
+                let end_ix = end_ix.min((width as i32) - 1) as usize;
+
+                for ix in start_ix..=end_ix {
+                    data[iy * width + ix] = true;
+                }
+            }
+        }
+    }
+
+    Some(RasterMask {
+        data,
+        width,
+        height,
+        min_x,
+        min_y,
+        resolution,
+    })
+}
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcPoint {
     pub pos: Point2<f32>,
@@ -110,6 +202,8 @@ pub fn generate_test_points(
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
     let mut images = HashMap::new();
+    let mut raster_masks: HashMap<String, RasterMask> = HashMap::new();
+
 
     let mut load_map_image = |map_source: &MapSource| {
         if let MapSource::Image { path, .. } = map_source {
@@ -156,7 +250,7 @@ pub fn generate_test_points(
             )
         };
 
-        if gravity != 0.0 {
+        if gravity != 0.0 && edgeReference == "Circle" {
             let d = (rx*rx + ry*ry).sqrt();
             if d > 0.1 {
                 let ratio = d / radius;
@@ -192,6 +286,9 @@ pub fn generate_test_points(
         }
 
         let mut allowed = true;
+        let mut min_dist_to_edge = f32::MAX;
+        let mut has_poly_mask = false;
+
         for mask in &masks {
             match mask {
                 MaskSource::ThresholdedMap { map, threshold } => {
@@ -211,9 +308,89 @@ pub fn generate_test_points(
                     }
                 },
                 MaskSource::Polygon(poly) => {
-                    let geo_poly = to_geo_poly(poly);
-                    if !geo_poly.contains(&geo::Point::new(x, y)) { allowed = false; break; }
+                    use std::hash::{Hash, Hasher};
+                    use std::collections::hash_map::DefaultHasher;
+
+                    let mut hasher = DefaultHasher::new();
+                    poly.exterior.iter().for_each(|p| {
+                        let bits = p.x.to_bits();
+                        bits.hash(&mut hasher);
+                        let bits = p.y.to_bits();
+                        bits.hash(&mut hasher);
+                    });
+                    let poly_hash = format!("{:x}", hasher.finish());
+                    let poly_key = &poly_hash[0..8];
+
+                    if !raster_masks.contains_key(poly_key) {
+                        if let Some(raster) = rasterize_polygon(poly, 2.0) { // 2.0 is resolution
+                            raster_masks.insert(poly_key.to_string(), raster);
+                        } else {
+                             allowed = false; break;
+                        }
+                    }
+
+                    if let Some(raster) = raster_masks.get(poly_key) {
+                        if !raster.is_inside(x, y) {
+                             allowed = false; break;
+                        } else {
+                            has_poly_mask = true;
+                            // This part is tricky. Raster gives fast inside/outside,
+                            // but distance to edge is expensive. We'll approximate.
+                            let ix = ((x - raster.min_x) / raster.resolution) as i32;
+                            let iy = ((y - raster.min_y) / raster.resolution) as i32;
+                            let mut min_d2 = i32::MAX;
+                            'search: for r in 1..((raster.width + raster.height) as i32) {
+                                for i in -r..=r {
+                                    for j in [-r, r].iter() {
+                                        let nx = ix + i;
+                                        let ny = iy + j;
+                                        if nx >= 0 && nx < raster.width as i32 && ny >= 0 && ny < raster.height as i32 {
+                                            if !raster.data[(ny as usize) * raster.width + (nx as usize)] {
+                                                min_d2 = r*r;
+                                                break 'search;
+                                            }
+                                        } else { // Outside grid is outside polygon
+                                            min_d2 = r*r;
+                                            break 'search;
+                                        }
+                                        let nx = ix + j;
+                                        let ny = iy + i;
+                                         if nx >= 0 && nx < raster.width as i32 && ny >= 0 && ny < raster.height as i32 {
+                                            if !raster.data[(ny as usize) * raster.width + (nx as usize)] {
+                                                min_d2 = r*r;
+                                                break 'search;
+                                            }
+                                        } else {
+                                            min_d2 = r*r;
+                                            break 'search;
+                                        }
+                                    }
+                                }
+                            }
+                            let dist = (min_d2 as f32).sqrt() * raster.resolution;
+                            if dist < min_dist_to_edge {
+                                min_dist_to_edge = dist;
+                            }
+                        }
+                    } else {
+                         allowed = false; break;
+                    }
                 }
+            }
+        }
+
+        if allowed && has_poly_mask && gravity != 0.0 && edgeReference == "Mask" {
+            let ref_dist = (radius * 0.25).max(10.0);
+            let nd = (min_dist_to_edge / ref_dist).clamp(0.0, 1.0);
+
+            let g_prob = if gravity > 0.0 {
+                (1.0 - nd).powf(gravity * 3.0)
+            } else {
+                nd.powf(gravity.abs() * 3.0)
+            };
+
+            if rng.gen::<f32>() > g_prob {
+                continue;
             }
         }
 
