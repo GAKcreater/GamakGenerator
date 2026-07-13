@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import ReactFlow, { 
-  Background, 
-  Controls, 
-  useNodesState, 
+import ReactFlow, {
+  Background,
+  Controls,
+  useNodesState,
   useEdgesState,
   addEdge,
   Connection,
@@ -13,6 +13,8 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { invoke } from "@tauri-apps/api/core";
+import { save, open } from "@tauri-apps/plugin-dialog";
+import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 
 import { NODE_REGISTRY } from "./core/registry";
 import { PortType } from "./core/types";
@@ -48,11 +50,54 @@ const FlowEditor = () => {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { project } = useReactFlow();
+  const { project, toObject, setViewport } = useReactFlow();
 
-  const [rightPanelWidth, setRightPanelWidth] = useState(800); 
-  const [inspectorWidth, setInspectorWidth] = useState(300);   
+  const [rightPanelWidth, setRightPanelWidth] = useState(800);
+  const [inspectorWidth, setInspectorWidth] = useState(300);
   const [resizingPart, setResizingPart] = useState<'panel' | 'inspector' | null>(null);
+
+  const handleSaveGraph = async () => {
+    try {
+      const filePath = await save({
+        filters: [{ name: 'JSON Graph', extensions: ['json'] }],
+      });
+      if (!filePath) return;
+      const flowData = toObject();
+      await writeTextFile(filePath, JSON.stringify(flowData, null, 2));
+      alert("Successfully saved to: " + filePath);
+    } catch (err) {
+      console.error("Failed to save graph:", err);
+      alert("Error saving file: " + String(err));
+    }
+  };
+
+  const handleLoadGraph = async () => {
+    try {
+      const filePath = await open({
+        filters: [{ name: 'JSON Graph', extensions: ['json'] }],
+        multiple: false,
+      });
+      if (!filePath || Array.isArray(filePath)) return;
+      const content = await readTextFile(filePath);
+      const flowData = JSON.parse(content);
+
+      if (flowData) {
+        setNodes([]);
+        setEdges([]);
+        setSelectedNodeId(null);
+        setGeneratedEntities([]);
+
+        setTimeout(() => {
+          setViewport(flowData.viewport || { x: 0, y: 0, zoom: 1 });
+          setNodes(flowData.nodes || []);
+          setEdges(flowData.edges || []);
+        }, 10);
+      }
+    } catch (err) {
+      console.error("Failed to load graph:", err);
+      alert("Error loading file: " + String(err));
+    }
+  };
 
   const resize = useCallback((e: MouseEvent) => {
     if (resizingPart === 'panel') {
@@ -253,7 +298,13 @@ const FlowEditor = () => {
           <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center font-black text-white italic shadow-lg">P</div>
           <h1 className="text-sm font-black uppercase tracking-widest text-zinc-200">ProcEngine <span className="text-indigo-500">V2</span></h1>
         </div>
-        <button onClick={handleRecalc} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[11px] font-black uppercase tracking-wider transition-all shadow-lg active:scale-95 border border-indigo-400/30 uppercase">Execute Graph</button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 border-r border-zinc-700 pr-4">
+             <button onClick={handleSaveGraph} className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-bold uppercase transition-colors border border-zinc-700">Save</button>
+             <button onClick={handleLoadGraph} className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-bold uppercase transition-colors border border-zinc-700">Load</button>
+          </div>
+          <button onClick={handleRecalc} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[11px] font-black uppercase tracking-wider transition-all shadow-lg active:scale-95 border border-indigo-400/30 uppercase">Execute Graph</button>
+        </div>
       </header>
       <div className="flex flex-1 overflow-hidden">
         <Sidebar onAddNode={(t, l, d) => setNodes(nds => nds.concat({ id: `node-${Date.now()}`, type: l === 'VIEWPORT' ? 'viewportNode' : 'procNode', position: { x: 100, y: 100 }, data: { label: l, description: d, ...(NODE_REGISTRY[l.replace(/ /g, '_')]?.params || {}) } }))} />

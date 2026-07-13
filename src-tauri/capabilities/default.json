@@ -9,6 +9,10 @@
     "fs:default",
     "core:image:default",
     "dialog:allow-open",
-    "fs:allow-read"
+    "dialog:allow-save",
+    "fs:allow-read",
+    "fs:allow-write",
+    "fs:allow-write-text-file",
+    "fs:allow-read-text-file"
   ]
 }
